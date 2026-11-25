@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "type": "Conflict",
+      "req_ids": ["REQ-02", "REQ-04"],
+      "explanation": "The policy allows 5 carry-over days, but the later HR email says 10. The app can only follow one rule.",
+      "suggestion": "Ask the HR lead to confirm the number in writing, and update the policy document to match."
+    }
+  ]
+}

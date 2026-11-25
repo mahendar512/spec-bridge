@@ -1,0 +1,22 @@
+{
+  "requirements": [
+    {
+      "text": "All full-time staff are entitled to 20 days of paid annual leave per calendar year.",
+      "type": "functional",
+      "quote": "All full-time staff are entitled to 20 days of paid annual leave per calendar year.",
+      "topic": "annual leave"
+    },
+    {
+      "text": "Staff can carry over a maximum of 5 unused annual leave days into the next calendar year.",
+      "type": "functional",
+      "quote": "Staff can carry over a maximum of 5 unused annual leave days into the next calendar year.",
+      "topic": "carry over"
+    },
+    {
+      "text": "Staff can see their current leave balance at any time in the app.",
+      "type": "functional",
+      "quote": "Staff can see their current leave balance at any time in the app.",
+      "topic": "leave balance"
+    }
+  ]
+}
