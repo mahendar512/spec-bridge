@@ -1,0 +1,49 @@
+[client]
+# Hide Streamlit's own menu (Rerun, Clear cache, Print, Record screen...) and the Deploy button
+toolbarMode = "minimal"
+
+[server]
+runOnSave = false
+
+# ---------------------------------------------------------------- theme
+# One professional look with a light and a dark version. Users switch between
+# them in the profile menu (top right).
+[theme]
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap, sans-serif"
+headingFont = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap, sans-serif"
+baseFontSize = 15
+baseRadius = "0.5rem"
+buttonRadius = "0.45rem"
+showWidgetBorder = true
+showSidebarBorder = true
+headingFontWeights = [700, 650, 600, 600, 600, 600]
+
+[theme.light]
+base = "light"
+primaryColor = "#2457D6"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F3F5F9"
+textColor = "#1B2333"
+borderColor = "#DCE1EA"
+linkColor = "#2457D6"
+dataframeHeaderBackgroundColor = "#EEF1F6"
+
+[theme.light.sidebar]
+backgroundColor = "#F7F8FB"
+secondaryBackgroundColor = "#ECEFF5"
+borderColor = "#DCE1EA"
+
+[theme.dark]
+base = "dark"
+primaryColor = "#4F80F7"
+backgroundColor = "#0F1522"
+secondaryBackgroundColor = "#1A2233"
+textColor = "#E4E8F0"
+borderColor = "#2A3447"
+linkColor = "#7EA2FA"
+dataframeHeaderBackgroundColor = "#1A2233"
+
+[theme.dark.sidebar]
+backgroundColor = "#0B101B"
+secondaryBackgroundColor = "#161E2E"
+borderColor = "#2A3447"

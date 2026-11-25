@@ -3,7 +3,7 @@
 Run with:  streamlit run app.py
 
 The app is a guided 4-step flow:
-  1. Add sources      - load the sample project or upload files, preview them
+  1. Add sources      - upload documents and emails, preview them
   2. Review           - requirements, the problems found and the analyst's decisions, together
   3. Stories & tests  - drafted only from approved requirements, tests shown under each criterion
   4. Export           - stories.csv, test_cases.csv, agreed_version.docx
@@ -13,8 +13,8 @@ It always runs in demo mode: results are replayed from demo_data/*.json.
 
 from __future__ import annotations
 
-import inspect
 import io
+import uuid
 from datetime import datetime
 
 import pandas as pd
@@ -24,9 +24,7 @@ import streamlit.components.v1 as components
 import ai
 import checks
 import export
-import prompts
-from create_samples import build_all
-from parsing import SUPPORTED_TYPES, ParsedDoc, parse_file, parse_path
+from parsing import SUPPORTED_TYPES, ParsedDoc, parse_file
 
 # Always demo mode: AI results are replayed from demo_data/ (see README).
 DEMO_MODE = True
@@ -38,6 +36,9 @@ PROJECT = {
     "analyst": "Alex Morgan",
     "email": "specbridge+leave-app@company.com",
 }
+
+# Signed-in user (mock, no real login)
+USER = {"name": "Mahendar", "designation": "Business Analyst", "emp_id": "EMP-10245"}
 
 STEPS = ["Add sources", "Review", "Stories & tests", "Export"]
 
@@ -57,7 +58,25 @@ st.markdown("""
 <style>
 .block-container {padding-top: 2.2rem; max-width: 1150px;}
 blockquote {margin: 0.2rem 0 0.4rem 0; padding: 0.1rem 0 0.1rem 0.8rem; opacity: 0.9;}
-div[data-testid="stMetricValue"] {font-size: 1.7rem;}
+div[data-testid="stMetricValue"] {font-size: 1.6rem; font-weight: 600;}
+h1 {letter-spacing: -0.02em;}
+[data-testid="stAppDeployButton"], [data-testid="stMainMenu"] {display: none !important;}
+
+/* Profile avatar: fixed in the top-right corner of the window */
+.st-key-profile {position: fixed; top: 0.55rem; right: 1.1rem; z-index: 1000001; width: auto !important;}
+.st-key-profile button {width: 2.4rem; height: 2.4rem; min-height: 2.4rem; padding: 0;
+    border-radius: 50%; background: #2457D6; color: #fff; border: 2px solid rgba(255,255,255,0.85);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.25); font-weight: 600; justify-content: center;}
+.st-key-profile button:hover {background: #1C47B4; color: #fff; border-color: #fff;}
+.st-key-profile button p {font-size: 1rem; margin: 0;}
+.st-key-profile button > div {justify-content: center; gap: 0; width: 100%;}
+.st-key-profile button [data-testid="stIconMaterial"] {display: none;}  /* hide the chevron */
+.sb-avatar {width: 3rem; height: 3rem; border-radius: 50%; background: #2457D6; color: #fff;
+            display: flex; align-items: center; justify-content: center; font-weight: 600;
+            font-size: 1.25rem; flex-shrink: 0;}
+.sb-profile-row {display: flex; justify-content: space-between; font-size: 0.88rem;
+                 padding: 0.15rem 0;}
+.sb-profile-row span:first-child {opacity: 0.65;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -143,16 +162,6 @@ def add_doc(doc: ParsedDoc) -> None:
     st.session_state.docs = [d for d in st.session_state.docs if d["name"] != doc.name] + [doc.to_dict()]
     if st.session_state.reqs:
         st.session_state.inputs_changed = True
-
-
-def load_samples() -> None:
-    try:
-        for path in build_all():
-            add_doc(parse_path(str(path)))
-        add_log("Inputs loaded", "Sample inputs", "HR_Leave_Policy.docx, HR_email_carry_over.eml")
-        st.session_state.notes.pop("inputs", None)
-    except Exception as exc:
-        st.session_state.notes["inputs"] = [f"Could not create the sample files ({type(exc).__name__})."]
 
 
 def on_upload() -> None:
@@ -364,13 +373,6 @@ def render_sidebar() -> None:
     sb.caption("Scattered requirements in. One agreed list out. "
                "The AI only drafts. A person approves everything.")
 
-    with sb.container(border=True):
-        st.markdown(f"**{PROJECT['name']}**")
-        st.caption(f"{PROJECT['company']}  \nBuilt by {PROJECT['partner']}  \n"
-                   f"Analyst: {PROJECT['analyst']}")
-        st.caption(f"✉️ `{PROJECT['email']}`  \n_Simulated: emails copied here would arrive "
-                   f"as new sources automatically._")
-
     reqs, issues = st.session_state.reqs, st.session_state.issues
     count = lambda status: sum(1 for r in reqs if r["status"] == status)  # noqa: E731
     open_n = sum(1 for i in issues if i["status"] == "open")
@@ -402,11 +404,6 @@ def render_sidebar() -> None:
             "from, flags conflicts, gaps and unclear wording, and you decide.\n"
             "3. **Stories & tests**: drafted only from what you approved.\n"
             "4. **Export**: CSV files for Jira and a Word document of the agreed version.")
-    with sb.expander("Show the AI prompts"):
-        for name, value in inspect.getmembers(prompts):
-            if name.isupper() and isinstance(value, str):
-                st.markdown(f"**{name}**")
-                st.code(value, language="text")
     if st.session_state.docs:
         sb.button("↺ Start over", key="start_over", on_click=start_over, width="stretch")
 
@@ -425,7 +422,7 @@ def render_stepper() -> None:
 def next_hint() -> str:
     s = st.session_state
     if not s.docs:
-        return "Start by loading the sample project or uploading your own files."
+        return "Start by uploading the documents and emails for this project."
     if not s.reqs:
         return "Next: find the requirements in your sources."
     if open_conflicts():
@@ -445,14 +442,8 @@ def step_sources() -> None:
     st.markdown("### Where are the requirements?")
     st.caption("Add the documents and emails for this project. "
                "Accepted: .docx, .pdf, .txt, .eml, .msg")
-    c1, c2 = st.columns(2, gap="medium")
-    with c1.container(border=True, height=190):
-        st.markdown("**📦 Use the sample project**")
-        st.caption("An HR leave policy and a later email from the HR lead.")
-        st.button("Load sample sources", key="load_samples", on_click=load_samples,
-                  type="primary", icon=":material/folder_open:")
-    with c2.container(border=True, height=190):
-        st.file_uploader("**⬆️ Or upload your own files**", type=SUPPORTED_TYPES,
+    with st.container(border=True):
+        st.file_uploader("**⬆️ Upload files**", type=SUPPORTED_TYPES,
                          accept_multiple_files=True, key="uploader", on_change=on_upload)
     show_notes("inputs")
 
@@ -748,7 +739,7 @@ def step_stories() -> None:
 
     st.divider()
     left, right = st.columns([3, 2])
-    left.caption("Stories and tests are drafts. Download them for Partner A in the next step.")
+    left.caption("Stories and tests are drafts. Download them in the next step.")
     right.button("Continue to export  →", key="go_export", type="primary", on_click=go, args=(3,),
                  width="stretch")
 
@@ -865,15 +856,120 @@ def scroll_to_top() -> None:
         "section.main').forEach(e => e.scrollTo({top: 0}));</script>", height=0)
 
 
+def log_out() -> None:
+    start_over()
+    st.session_state.signed_out = True
+
+
+def sign_in() -> None:
+    st.session_state.signed_out = False
+    flash(f"Welcome back, {USER['name']}.")
+
+
+# ---------------------------------------------------------------- theme switching
+# Streamlit applies its light/dark theme (see .streamlit/config.toml) when the page loads, and
+# remembers the choice in the browser. Switching therefore saves the work in progress on the
+# server, stores the choice in the browser and reloads the page, which then restores the work.
+
+THEMES = {"Light": ":material/light_mode: Light", "Dark": ":material/dark_mode: Dark"}
+SAVED_KEYS = ("docs", "reqs", "issues", "stories", "tests", "log", "notes", "inputs_changed",
+              "stories_basis", "stage", "flash")
+
+
+@st.cache_resource
+def _saved_sessions() -> dict:
+    return {}
+
+
+def session_token() -> str:
+    token = st.query_params.get("s")
+    if not token:
+        token = uuid.uuid4().hex[:12]
+        st.query_params["s"] = token
+    return token
+
+
+def restore_after_reload() -> None:
+    saved = _saved_sessions().pop(session_token(), None)
+    if saved and not st.session_state.get("_restored"):
+        st.session_state.update(saved)
+    st.session_state["_restored"] = True
+
+
+def current_theme() -> str:
+    return "Dark" if st.context.theme.type == "dark" else "Light"
+
+
+def choose_theme() -> None:
+    choice = st.session_state.get("theme_choice")
+    if choice and choice != current_theme():
+        st.session_state.pending_theme = choice
+
+
+def apply_pending_theme() -> None:
+    choice = st.session_state.pop("pending_theme", None)
+    if not choice:
+        return
+    saved = {k: st.session_state[k] for k in SAVED_KEYS}
+    saved["flash"] = f"{choice} theme on."  # shown after the reload
+    _saved_sessions()[session_token()] = saved
+    components.html(
+        "<script>const w = window.parent;"
+        f"w.localStorage.setItem('stActiveTheme-' + w.location.pathname + '-v2', "
+        f"JSON.stringify('{choice}'));"
+        "w.location.reload();</script>", height=0)
+
+
+def render_profile_menu() -> None:
+    initial = USER["name"][0].upper()
+    with st.popover(initial, key="profile"):
+        st.markdown(
+            f"<div style='display:flex;gap:0.8rem;align-items:center;min-width:15rem'>"
+            f"<div class='sb-avatar'>{initial}</div>"
+            f"<div><div style='font-weight:600;font-size:1.05rem'>{USER['name']}</div>"
+            f"<div style='opacity:0.7;font-size:0.88rem'>{USER['designation']}</div></div></div>",
+            unsafe_allow_html=True)
+        st.markdown(
+            f"<div style='margin-top:0.7rem'>"
+            f"<div class='sb-profile-row'><span>Employee ID</span><span>{USER['emp_id']}</span></div>"
+            f"</div>", unsafe_allow_html=True)
+        st.divider()
+        st.markdown("<small style='opacity:0.7'>Appearance</small>", unsafe_allow_html=True)
+        st.segmented_control("Theme", list(THEMES), format_func=THEMES.get, key="theme_choice",
+                             default=current_theme(), on_change=choose_theme,
+                             label_visibility="collapsed", width="stretch")
+        if st.session_state.docs:
+            st.button("New project", key="profile_new", on_click=start_over, width="stretch",
+                      icon=":material/add_circle:", help="Clears this project and starts again.")
+        st.button("Log out", key="log_out", on_click=log_out, width="stretch",
+                  icon=":material/logout:")
+
+
+def render_signed_out() -> None:
+    _, mid, _ = st.columns([1, 2, 1])
+    with mid:
+        st.markdown("<div style='height:12vh'></div>", unsafe_allow_html=True)
+        with st.container(border=True):
+            st.markdown("## 🌉 SpecBridge")
+            st.markdown("You have been logged out.")
+            st.button(f"Log in as {USER['name']}", key="sign_in", on_click=sign_in,
+                      type="primary", width="stretch", icon=":material/login:")
+
+
 def main() -> None:
     init_state()
+    restore_after_reload()
+    if st.session_state.get("signed_out"):
+        render_signed_out()
+        return
+    apply_pending_theme()
     if st.session_state.flash:
         st.toast(st.session_state.flash, icon="✅")
         st.session_state.flash = None
     render_sidebar()
 
+    render_profile_menu()
     st.markdown("# 🌉 SpecBridge")
-    st.caption(f"{PROJECT['name']} · {PROJECT['company']} · built by {PROJECT['partner']}")
     if not step_unlocked(st.session_state.stage):
         st.session_state.stage = 0
     render_stepper()

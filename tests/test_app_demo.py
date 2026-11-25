@@ -8,9 +8,18 @@ from streamlit.testing.v1 import AppTest
 import export
 from checks import ready_to_build
 from conftest import ROOT
+from create_samples import build_all
+from parsing import parse_path
 
 NEW_BALANCE = "Staff can see their remaining leave balance on the home screen at any time."
 REMINDER = "Managers get a reminder when a leave request is waiting for their approval."
+
+
+def _upload_samples(at):
+    """Same result as uploading the two sample files in the file uploader."""
+    at.session_state["docs"] = [parse_path(str(p)).to_dict() for p in build_all()]
+    at.run()
+    assert not at.exception, at.exception
 
 
 def _click(at, key):
@@ -26,9 +35,11 @@ def test_full_demo_run():
     assert at.button(key="nav_1").disabled  # Review is locked until requirements exist
     sidebar_text = " ".join(m.value for m in at.sidebar.markdown)
     assert "Demo mode" not in sidebar_text and "Ollama" not in sidebar_text
+    assert "5,000" not in sidebar_text and "Partner A" not in sidebar_text
+    assert not [b for b in at.button if b.key == "load_samples"]  # upload only
 
     # Step 1: sources
-    _click(at, "load_samples")
+    _upload_samples(at)
     names = [d["name"] for d in at.session_state["docs"]]
     assert names == ["HR_Leave_Policy.docx", "HR_email_carry_over.eml"]
 
@@ -99,10 +110,41 @@ def test_full_demo_run():
     assert at.session_state["docs"] == [] and at.session_state["stage"] == 0
 
 
+def test_profile_menu_log_out_and_back_in():
+    at = AppTest.from_file(str(ROOT / "app.py"), default_timeout=60)
+    at.run()
+    assert all("prompts" not in e.label for e in at.sidebar.expander)
+    _upload_samples(at)
+    _click(at, "log_out")
+    assert at.session_state["signed_out"] and at.session_state["docs"] == []
+    assert not [b for b in at.button if b.key == "find_reqs"]  # app hidden while logged out
+    _click(at, "sign_in")
+    assert not at.session_state["signed_out"]
+    assert at.button(key="find_reqs")
+
+
+def test_theme_switch_keeps_work_across_reload():
+    at = AppTest.from_file(str(ROOT / "app.py"), default_timeout=60)
+    at.run()
+    _upload_samples(at)
+    _click(at, "find_reqs")
+    token = at.query_params["s"][0] if isinstance(at.query_params["s"], list) else at.query_params["s"]
+    at.segmented_control(key="theme_choice").set_value("Dark").run()
+    assert not at.exception, at.exception
+
+    # The browser reloads the page: a new session with the same URL gets the work back
+    fresh = AppTest.from_file(str(ROOT / "app.py"), default_timeout=60)
+    fresh.query_params["s"] = token
+    fresh.run()
+    assert not fresh.exception, fresh.exception
+    assert fresh.session_state["stage"] == 1
+    assert [r["id"] for r in fresh.session_state["reqs"]] == ["REQ-01", "REQ-02", "REQ-03", "REQ-04"]
+
+
 def test_custom_wording_settles_conflict():
     at = AppTest.from_file(str(ROOT / "app.py"), default_timeout=60)
     at.run()
-    _click(at, "load_samples")
+    _upload_samples(at)
     _click(at, "find_reqs")
     at.text_input(key="custom_ISS-01").input("Staff can carry over up to 8 unused days.").run()
     _click(at, "custom_save_ISS-01")

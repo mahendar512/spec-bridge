@@ -51,7 +51,7 @@ The tests cover:
 | Stories and tests | Written **only** from approved requirements: one story per requirement, then tests per story (positive, negative, boundary) | AI |
 | Export | `stories.csv`, `test_cases.csv` (Jira-friendly) and `agreed_version.docx` | Python |
 
-The AI uses small, separate calls with structured JSON output and temperature 0. The answers are checked with Pydantic. All prompts are in [prompts.py](prompts.py), and you can also see them in the app's sidebar under **Show the AI prompts**.
+The AI uses small, separate calls with structured JSON output and temperature 0. The answers are checked with Pydantic. All prompts are in [prompts.py](prompts.py).
 
 | File | Purpose |
 |---|---|
@@ -69,20 +69,20 @@ The stepper at the top always shows where you are. Each step moves you on to the
 
 | Step | What you see |
 |---|---|
-| **1 · Add sources** | Load the sample project or upload files. Each source appears as a card; emails show From, Date and Subject. |
+| **1 · Add sources** | Upload documents and emails. Each source appears as a card; emails show From, Date and Subject. The two sample files are in `sample_inputs/` (rebuild them with `python create_samples.py --force`). |
 | **2 · Review** | Conflicts come first, as a decision card with both quotes side by side and a **Keep** button for each. Below them, every requirement is a card with its quoted source, any problems and **Accept / Edit / Reject**. Add missed requirements, see a table view, resolved issues and the decision log. |
 | **3 · Stories & tests** | One click drafts both. Each story shows its Given/When/Then criteria with the tests listed under each one, and a **Ready to build** badge. Criteria without a test are highlighted. |
 | **4 · Export** | Download `stories.csv`, `test_cases.csv` and `agreed_version.docx`, with previews. |
 
-The sidebar shows the project, a live summary (found, flagged, accepted, edited, rejected, added, ready to build), the AI prompts and **Start over**.
+The sidebar shows a live summary (found, flagged, accepted, edited, rejected, added, ready to build) and **Start over**. The round avatar in the top-right corner opens the profile: name (Mahendar), designation, employee ID, a **Light / Dark** theme switch, **New project** and **Log out** (a mock sign-in, no real accounts; edit `USER` in `app.py`). The light and dark themes are defined in `.streamlit/config.toml`, which also hides Streamlit's own menu and Deploy button. Switching theme reloads the page, and the work in progress is kept.
 
 ## 10-step demo script: "Staff leave app"
 
 **Setting:** Larkfield Retail is a made-up company with 5,000 staff. It is having a staff leave app built by an outside partner, Partner A. The sample inputs are deliberately small: an HR policy with 3 rules and a later email from the HR lead with 1 rule, which gives **4 requirements and 1 planted problem**.
 
-1. **Set the scene.** Point at the project card in the sidebar: "Requirements never arrive in one place. Here they're in a policy document and an email. Anything copied to `specbridge+leave-app@company.com` would land in SpecBridge."
+1. **Set the scene.** "Requirements never arrive in one place. Here they're in a policy document and an email from HR."
 
-2. **Add the sources (step 1).** Click **Load sample sources**. Open **Preview text** on the policy: 20 days of annual leave, carry over at most **5** days, see your leave balance. Then show the email card's From, Date and Subject. "Note the date: the email came *after* the policy."
+2. **Add the sources (step 1).** Upload `HR_Leave_Policy.docx` and `HR_email_carry_over.eml` from `sample_inputs/` (drag both onto the upload box). Open **Preview text** on the policy: 20 days of annual leave, carry over at most **5** days, see your leave balance. Then show the email card's From, Date and Subject. "Note the date: the email came *after* the policy."
 
 3. **Find the requirements.** Click **Find requirements →**. The app moves to **Review** by itself. "Four requirements, each with the exact words it came from, and every quote checked against the source. If the AI made something up, its card would show an orange *Source not verified* badge."
 
@@ -100,6 +100,6 @@ The sidebar shows the project, a live summary (found, flagged, accepted, edited,
 
 10. **Export and close.** Click **Continue to export →** and download `stories.csv` (ready for Jira import), `test_cases.csv` and `agreed_version.docx`. Open the Word file: agreed requirements with sources, the resolved conflict with who confirmed it, stories, tests and the full decision log. Close with: "The AI did the reading and drafting. The analyst made every decision, and the audit trail shows it."
 
-**If asked "what are the prompts?"**: open **Show the AI prompts** in the sidebar, or [prompts.py](prompts.py).
+**If asked "what are the prompts?"**: open [prompts.py](prompts.py).
 **If asked "what if the AI is wrong?"**: point to quote checking, the Python conflict check running beside the AI, and the analyst approving every item.
 **If asked "what else can it catch?"**: it also flags gaps (e.g. a deadline with no rule for when it is missed), vague words like *fast* or *user-friendly*, and the same rule appearing in two files.
