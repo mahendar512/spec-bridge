@@ -61,6 +61,7 @@ def test_sample_files_parse(tmp_path):
     email_path = create_samples.build_email(tmp_path / "HR_email_carry_over.eml")
     p, e = parse_path(str(policy)), parse_path(str(email_path))
     assert "maximum of 5 unused annual leave days" in p.text
-    assert "current leave balance" in p.text
+    assert "choosing a start date and an end date" in p.text
+    assert "approves or declines their leave request" in p.text
     assert "up to 10 unused leave days" in e.text
     assert "specbridge+leave-app@company.com" in e.meta["cc"]

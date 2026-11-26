@@ -1,24 +1,108 @@
 {
-  "REQ-01": {"tests": [
-    {"criterion_number": 1, "type": "positive", "steps": "1. Log in as a full-time staff member on 1 January 2. Open 'My leave'", "expected": "The allowance shows 20 days"},
-    {"criterion_number": 2, "type": "negative", "steps": "1. Log in as a full-time staff member who has booked 20 days this year 2. Request 1 more day of annual leave", "expected": "The request is blocked with the message that the allowance is used up"},
-    {"criterion_number": 2, "type": "boundary", "steps": "1. Log in as a staff member with 19 days booked 2. Request 1 day 3. Then request 1 more day", "expected": "The first request is allowed (total 20); the second is blocked (total 21)"}
-  ]},
-  "REQ-02": {"tests": [
-    {"criterion_number": 1, "type": "positive", "steps": "1. Give a staff member 3 unused days on 31 December 2. Run the new-year process", "expected": "3 days are carried over"},
-    {"criterion_number": 2, "type": "negative", "steps": "1. Give a staff member 7 unused days on 31 December 2. Run the new-year process", "expected": "5 days are carried over and 2 days are shown as lost"},
-    {"criterion_number": 2, "type": "boundary", "steps": "1. Test with 5 unused days 2. Test again with 6 unused days", "expected": "5 days: all 5 carried over (allowed). 6 days: only 5 carried over, 1 lost (blocked)"}
-  ]},
-  "REQ-03": {"tests": [
-    {"criterion_number": 1, "type": "positive", "steps": "1. Log in as a staff member with 12 days left", "expected": "The home screen shows '12 days left'"},
-    {"criterion_number": 1, "type": "boundary", "steps": "1. Log in as a staff member with 0 days left", "expected": "The home screen shows '0 days left' (not blank and not an error)"},
-    {"criterion_number": 2, "type": "positive", "steps": "1. Have a 3-day request approved 2. Return to the home screen", "expected": "The balance has gone down by 3 days"},
-    {"criterion_number": 2, "type": "negative", "steps": "1. Have a request declined 2. Return to the home screen", "expected": "The balance has not changed"}
-  ]},
-  "REQ-04": {"tests": [
-    {"criterion_number": 1, "type": "positive", "steps": "1. Give a staff member 6 unused days on 31 December 2. Run the new-year process", "expected": "6 days are carried over"},
-    {"criterion_number": 1, "type": "boundary", "steps": "1. Give a staff member exactly 10 unused days on 31 December 2. Run the new-year process", "expected": "All 10 days are carried over (allowed)"},
-    {"criterion_number": 2, "type": "boundary", "steps": "1. Give a staff member 11 unused days on 31 December 2. Run the new-year process", "expected": "Only 10 days are carried over and 1 day is shown as lost (11 is blocked)"},
-    {"criterion_number": 2, "type": "negative", "steps": "1. Give a staff member 15 unused days on 31 December 2. Run the new-year process", "expected": "Only 10 days are carried over and 5 days are shown as lost"}
-  ]}
+  "REQ-01": {
+    "tests": [
+      {
+        "criterion_number": 1,
+        "type": "positive",
+        "steps": "1. Open 'Request leave' 2. Choose 10 March to 14 March 3. Submit",
+        "expected": "The request is saved and shown as 'Waiting for manager'"
+      },
+      {
+        "criterion_number": 1,
+        "type": "boundary",
+        "steps": "1. Open 'Request leave' 2. Choose the same day as start and end 3. Submit",
+        "expected": "A one-day request is saved (allowed)"
+      },
+      {
+        "criterion_number": 2,
+        "type": "negative",
+        "steps": "1. Open 'Request leave' 2. Choose 14 March as start and 10 March as end 3. Submit",
+        "expected": "The request is blocked with the message that the end date must be on or after the start date"
+      },
+      {
+        "criterion_number": 2,
+        "type": "negative",
+        "steps": "1. Open 'Request leave' 2. Leave the end date empty 3. Submit",
+        "expected": "The request is blocked and the end date field is highlighted"
+      }
+    ]
+  },
+  "REQ-02": {
+    "tests": [
+      {
+        "criterion_number": 1,
+        "type": "positive",
+        "steps": "1. Give a staff member 3 unused days on 31 December 2. Run the new-year process",
+        "expected": "3 days are carried over"
+      },
+      {
+        "criterion_number": 2,
+        "type": "negative",
+        "steps": "1. Give a staff member 7 unused days on 31 December 2. Run the new-year process",
+        "expected": "5 days are carried over and 2 days are shown as lost"
+      },
+      {
+        "criterion_number": 2,
+        "type": "boundary",
+        "steps": "1. Test with 5 unused days 2. Test again with 6 unused days",
+        "expected": "5 days: all 5 carried over (allowed). 6 days: only 5 carried over, 1 lost (blocked)"
+      }
+    ]
+  },
+  "REQ-03": {
+    "tests": [
+      {
+        "criterion_number": 1,
+        "type": "positive",
+        "steps": "1. Submit a leave request 2. Log in as the line manager and approve it",
+        "expected": "The staff member gets an 'Approved' email with the dates"
+      },
+      {
+        "criterion_number": 1,
+        "type": "negative",
+        "steps": "1. Submit a leave request 2. Leave it waiting",
+        "expected": "No email is sent until the manager decides"
+      },
+      {
+        "criterion_number": 2,
+        "type": "positive",
+        "steps": "1. Submit a leave request 2. Log in as the line manager and decline it",
+        "expected": "The staff member gets a 'Declined' email"
+      },
+      {
+        "criterion_number": 2,
+        "type": "boundary",
+        "steps": "1. Approve a request 2. Then decline the same request",
+        "expected": "Exactly two emails are sent, one per decision, in the right order"
+      }
+    ]
+  },
+  "REQ-04": {
+    "tests": [
+      {
+        "criterion_number": 1,
+        "type": "positive",
+        "steps": "1. Give a staff member 6 unused days on 31 December 2. Run the new-year process",
+        "expected": "6 days are carried over"
+      },
+      {
+        "criterion_number": 1,
+        "type": "boundary",
+        "steps": "1. Give a staff member exactly 10 unused days on 31 December 2. Run the new-year process",
+        "expected": "All 10 days are carried over (allowed)"
+      },
+      {
+        "criterion_number": 2,
+        "type": "boundary",
+        "steps": "1. Give a staff member 11 unused days on 31 December 2. Run the new-year process",
+        "expected": "Only 10 days are carried over and 1 day is shown as lost (11 is blocked)"
+      },
+      {
+        "criterion_number": 2,
+        "type": "negative",
+        "steps": "1. Give a staff member 15 unused days on 31 December 2. Run the new-year process",
+        "expected": "Only 10 days are carried over and 5 days are shown as lost"
+      }
+    ]
+  }
 }

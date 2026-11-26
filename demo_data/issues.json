@@ -2,9 +2,16 @@
   "issues": [
     {
       "type": "Conflict",
-      "req_ids": ["REQ-02", "REQ-04"],
+      "req_ids": [
+        "REQ-02",
+        "REQ-04"
+      ],
       "explanation": "The policy allows 5 carry-over days, but the later HR email says 10. The app can only follow one rule.",
-      "suggestion": "Ask the HR lead to confirm the number in writing, and update the policy document to match."
+      "suggestion": "Ask the HR lead to confirm the number in writing, and update the policy document to match.",
+      "req_texts": [
+        "Staff can carry over at most 5 unused annual leave days into the next year.",
+        "Staff can carry over up to 10 unused leave days into the next year."
+      ]
     }
   ]
 }

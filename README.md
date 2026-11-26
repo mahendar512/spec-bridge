@@ -86,7 +86,7 @@ The sidebar shows a live summary, the status of the three checkpoints (who appro
 
 1. **Set the scene.** "Requirements never arrive in one place. Here they're in a policy document and an email from HR."
 
-2. **Add the sources (step 1).** Upload `HR_Leave_Policy.docx` and `HR_email_carry_over.eml` from `sample_inputs/` (drag both onto the upload box). Open **Preview text** on the policy: 20 days of annual leave, carry over at most **5** days, see your leave balance. Then show the email card's From, Date and Subject. "Note the date: the email came *after* the policy."
+2. **Add the sources (step 1).** Upload `HR_Leave_Policy.docx` and `HR_email_carry_over.eml` from `sample_inputs/` (drag both onto the upload box). Open **Preview text** on the policy: request leave by choosing dates, carry over at most **5** unused days, and an email when a request is approved or declined. Then show the email card's From, Date and Subject. "Note the date: the email came *after* the policy."
 
 3. **The AI extracts and checks (step 2).** Click **Find requirements →**. "Four requirements, each with the exact words it came from, and every quote checked against the source. If the AI made something up, it would be marked *Source not verified*." Point at the stepper: "The AI does the light steps. A person decides at each of the three checkpoints, and nothing moves on without that approval."
 

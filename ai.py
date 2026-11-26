@@ -19,7 +19,8 @@ from typing import Callable, ContextManager, Literal, Protocol, TypeVar
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 import prompts
-from checks import APPROVED, merge_issues, merge_requirements, run_python_checks, similarity
+from checks import (APPROVED, merge_issues, merge_requirements, normalise, run_python_checks,
+                    similarity)
 from parsing import ParsedDoc
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -239,7 +240,9 @@ def run_extraction(docs: list[ParsedDoc], provider: AIProvider | None, demo: boo
                    step: StepFn = _no_step) -> tuple[list[dict], list[str]]:
     """One AI call per file, then merge in Python. Returns (requirements, notes)."""
     items, notes = [], []
-    for doc in docs:
+    # Documents before emails, then by name: REQ numbers must not depend on upload order
+    # (saved demo stories and tests are keyed by REQ number).
+    for doc in sorted(docs, key=lambda d: (d.kind == "email", d.name.lower())):
         if doc.error:
             notes.append(f"Skipped {doc.name}: {doc.error}")
             continue
@@ -285,6 +288,33 @@ def format_reqs_for_prompt(reqs: list[dict]) -> str:
                      f"[source: {', '.join(s['file'] for s in r['sources'])}]" for r in reqs)
 
 
+def _with_req_texts(data: dict, reqs: list[dict]) -> dict:
+    """Save each finding with the wording of its requirements, not only their numbers."""
+    by_id = {r["id"]: r["original_text"] for r in reqs}
+    for issue in data["issues"]:
+        issue["req_texts"] = [by_id.get(i, "") for i in issue["req_ids"]]
+    return data
+
+
+def _match_saved_issues(data: dict, reqs: list[dict]) -> dict:
+    """Point saved findings at the current requirements by wording.
+
+    A finding is replayed only if every requirement it names is found again with the
+    same wording, so a saved conflict can never land on two unrelated requirements.
+    """
+    by_text = {normalise(r["original_text"]): r["id"] for r in reqs}
+    kept = []
+    for issue in data.get("issues", []):
+        texts = issue.get("req_texts")
+        if texts is None:
+            kept.append(issue)  # old file without wording: keep the numbers as saved
+            continue
+        ids = [by_text.get(normalise(t)) for t in texts]
+        if ids and all(ids):
+            kept.append({**issue, "req_ids": ids})
+    return {"issues": kept}
+
+
 def run_issue_check(reqs: list[dict], provider: AIProvider | None, demo: bool,
                     step: StepFn = _no_step) -> tuple[list[dict], list[str]]:
     """Python checks + one AI call, merged. Returns (issues, notes)."""
@@ -299,13 +329,13 @@ def run_issue_check(reqs: list[dict], provider: AIProvider | None, demo: bool,
                     prompts.ISSUES_USER.format(project=PROJECT_NAME,
                                                requirements=format_reqs_for_prompt(reqs)),
                     IssueResult)
-                save_demo("issues.json", ai_result.model_dump())
+                save_demo("issues.json", _with_req_texts(ai_result.model_dump(), reqs))
             except AIStepError as exc:
                 reason = f"The AI problem check failed ({exc})."
     if ai_result is None:
         data = load_demo("issues.json")
         if data is not None:
-            ai_result = IssueResult.model_validate(data)
+            ai_result = IssueResult.model_validate(_match_saved_issues(data, reqs))
             if reason:
                 notes.append(f"{reason} Showing saved demo findings instead. "
                              f"The built-in checks still ran.")

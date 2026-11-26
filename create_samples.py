@@ -4,7 +4,7 @@
     python create_samples.py --force  # rebuild them
 
 Kept deliberately small: 4 requirements in total, and 1 planted problem.
-  Policy: 20 days annual leave, carry over max 5 days, see leave balance in the app
+  Policy: request leave in the app, carry over max 5 days, email when a request is decided
   Email:  carry over up to 10 days  ->  Conflict with the policy (5 vs 10)
 """
 
@@ -43,16 +43,17 @@ def build_policy(path: Path = POLICY_FILE) -> Path:
     ]):
         row.cells[0].text, row.cells[1].text = k, v
 
-    d.add_heading("1. Annual leave", level=1)
+    d.add_heading("1. Requesting leave", level=1)
     d.add_paragraph(
-        "All full-time staff are entitled to 20 days of paid annual leave per calendar year.")
+        "Staff request annual leave in the app by choosing a start date and an end date.")
 
     d.add_heading("2. Carrying over unused leave", level=1)
     d.add_paragraph(
         "Staff can carry over a maximum of 5 unused annual leave days into the next calendar year.")
 
-    d.add_heading("3. Leave balance", level=1)
-    d.add_paragraph("Staff can see their current leave balance at any time in the app.")
+    d.add_heading("3. Notifications", level=1)
+    d.add_paragraph(
+        "Staff receive an email when their line manager approves or declines their leave request.")
 
     path.parent.mkdir(parents=True, exist_ok=True)
     d.save(path)

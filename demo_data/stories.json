@@ -1,13 +1,21 @@
 {
   "REQ-01": {
-    "req_text": "Full-time staff get 20 days of paid annual leave per calendar year.",
-    "title": "Yearly leave allowance of 20 days",
-    "role": "full-time staff member",
-    "goal": "to get 20 days of paid annual leave each calendar year",
-    "benefit": "I know how much time off I can plan",
+    "req_text": "Staff request annual leave in the app by choosing a start date and an end date.",
+    "title": "Request leave by choosing dates",
+    "role": "staff member",
+    "goal": "to request annual leave in the app by choosing a start date and an end date",
+    "benefit": "I can book time off without paper forms",
     "criteria": [
-      {"given": "a full-time staff member at the start of the leave year", "when": "they open their leave balance", "then": "the app shows an allowance of 20 days"},
-      {"given": "a full-time staff member has already booked all 20 days this year", "when": "they request one more day of annual leave", "then": "the app blocks the request and explains that the allowance is used up"}
+      {
+        "given": "a staff member is on the 'Request leave' screen",
+        "when": "they choose a start date and an end date and submit",
+        "then": "the request is saved and shown as waiting for their line manager"
+      },
+      {
+        "given": "a staff member chooses an end date before the start date",
+        "when": "they submit the request",
+        "then": "the app blocks the request and explains that the end date must be on or after the start date"
+      }
     ]
   },
   "REQ-02": {
@@ -17,19 +25,35 @@
     "goal": "to carry over up to 5 unused leave days into next year",
     "benefit": "I don't lose leave I couldn't take",
     "criteria": [
-      {"given": "a staff member has unused annual leave at the end of the leave year", "when": "the new leave year starts", "then": "up to 5 unused days are carried over"},
-      {"given": "a staff member has more than 5 unused days at the end of the leave year", "when": "the new leave year starts", "then": "only 5 days are carried over and the rest are shown as lost"}
+      {
+        "given": "a staff member has unused annual leave at the end of the leave year",
+        "when": "the new leave year starts",
+        "then": "up to 5 unused days are carried over"
+      },
+      {
+        "given": "a staff member has more than 5 unused days at the end of the leave year",
+        "when": "the new leave year starts",
+        "then": "only 5 days are carried over and the rest are shown as lost"
+      }
     ]
   },
   "REQ-03": {
-    "req_text": "Staff can see their current leave balance in the app at any time.",
-    "title": "See my leave balance",
+    "req_text": "Staff get an email when their line manager approves or declines their leave request.",
+    "title": "Email when my request is decided",
     "role": "staff member",
-    "goal": "to see my current leave balance in the app at any time",
-    "benefit": "I can plan time off without asking HR",
+    "goal": "to get an email when my line manager approves or declines my leave request",
+    "benefit": "I know the outcome without checking the app",
     "criteria": [
-      {"given": "a staff member logs in", "when": "the home screen opens", "then": "their remaining leave balance is shown in days"},
-      {"given": "a staff member's leave request has just been approved", "when": "they return to the home screen", "then": "the balance shows the new number of remaining days"}
+      {
+        "given": "a staff member has a leave request waiting",
+        "when": "their line manager approves it",
+        "then": "the staff member gets an email saying the request was approved, with the dates"
+      },
+      {
+        "given": "a staff member has a leave request waiting",
+        "when": "their line manager declines it",
+        "then": "the staff member gets an email saying the request was declined"
+      }
     ]
   },
   "REQ-04": {
@@ -39,8 +63,16 @@
     "goal": "to carry over up to 10 unused leave days into next year",
     "benefit": "I don't lose leave I couldn't take during busy periods",
     "criteria": [
-      {"given": "a staff member has unused annual leave at the end of the leave year", "when": "the new leave year starts", "then": "up to 10 unused days are carried over"},
-      {"given": "a staff member has more than 10 unused days at the end of the leave year", "when": "the new leave year starts", "then": "only 10 days are carried over and the rest are shown as lost"}
+      {
+        "given": "a staff member has unused annual leave at the end of the leave year",
+        "when": "the new leave year starts",
+        "then": "up to 10 unused days are carried over"
+      },
+      {
+        "given": "a staff member has more than 10 unused days at the end of the leave year",
+        "when": "the new leave year starts",
+        "then": "only 10 days are carried over and the rest are shown as lost"
+      }
     ]
   }
 }

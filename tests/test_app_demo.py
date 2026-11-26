@@ -11,7 +11,7 @@ from conftest import ROOT
 from create_samples import build_all
 from parsing import parse_path
 
-NEW_BALANCE = "Staff can see their remaining leave balance on the home screen at any time."
+NEW_EMAIL = "Staff get an email and an in-app message when their leave request is decided."
 REMINDER = "Managers get a reminder when a leave request is waiting for their approval."
 
 
@@ -95,7 +95,7 @@ def test_full_demo_run():
 
     assert not any(k.startswith(("ask_", "pask_")) for k in _keys(at))  # no question buttons
     _click(at, "edit_REQ-03")
-    at.text_area(key="edit_text_REQ-03").input(NEW_BALANCE).run()
+    at.text_area(key="edit_text_REQ-03").input(NEW_EMAIL).run()
     _click(at, "save_REQ-03")
     at.text_area(key="new_req_text").input(REMINDER).run()
     at.text_input(key="new_req_note").input("Agreed with HR lead").run()
@@ -182,7 +182,7 @@ def test_changing_a_requirement_after_approval_reopens_the_checkpoint():
     _through_cp1(at)
     _click(at, "nav_2")
     _click(at, "edit_REQ-01")
-    at.text_area(key="edit_text_REQ-01").input("Full-time staff get 22 days of paid leave.").run()
+    at.text_area(key="edit_text_REQ-01").input("Staff request leave in the app and can add a comment for their manager.").run()
     _click(at, "save_REQ-01")
     assert at.button(key="nav_3").disabled and at.button(key="nav_4").disabled
     assert not at.button(key="approve_cp1").disabled  # approve again
@@ -212,3 +212,16 @@ def test_custom_wording_settles_conflict():
     assert reqs["REQ-02"]["status"] == "edited"
     assert reqs["REQ-02"]["text"] == "Staff can carry over up to 8 unused days."
     assert reqs["REQ-04"]["status"] == "rejected"
+
+
+def test_upload_order_does_not_move_the_conflict():
+    """Email uploaded first: still one conflict, and it is the carry-over pair."""
+    at = _app()
+    at.session_state["docs"] = [parse_path(str(p)).to_dict() for p in reversed(build_all())]
+    at.run()
+    _click(at, "find_reqs")
+    reqs = {r["id"]: r["text"] for r in at.session_state["reqs"]}
+    issues = at.session_state["issues"]
+    assert len(issues) == 1 and issues[0]["type"] == "Conflict"
+    assert all("carry over" in reqs[rid] for rid in issues[0]["req_ids"])
+    assert "start date" in reqs["REQ-01"]  # numbering is the same whatever the upload order
