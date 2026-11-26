@@ -55,3 +55,19 @@ def test_agreed_docx_opens():
     text = "\n".join(p.text for p in d.paragraphs)
     assert "Agreed requirements – Staff leave app – v1.0" in text
     assert "Kept REQ-09" in text
+
+
+def test_agreed_docx_lists_approvals_and_questions():
+    project = {"name": "Staff leave app", "company": "Larkfield", "partner": "Partner A",
+               "analyst": "Mahendar"}
+    approvals = [{"checkpoint": "Checkpoint 1", "title": "Analyst review", "by": "Mahendar",
+                  "role": "Business Analyst", "time": "26 Nov 2026 10:00"}]
+    questions = [{"id": "Q-01", "req_ids": ["REQ-09"], "asked_by": "Partner lead",
+                  "asked_to": "Analyst", "text": "Is it 10 working days?", "status": "answered",
+                  "answer": "Calendar days."}]
+    data = export.agreed_docx(project, [], [], STORIES, TESTS, [], approvals, questions)
+    d = docx.Document(io.BytesIO(data))
+    text = "\n".join(p.text for p in d.paragraphs)
+    cells = "\n".join(c.text for t in d.tables for r in t.rows for c in r.cells)
+    assert "Checkpoint 1 · Analyst review" in cells and "Mahendar" in cells
+    assert "Is it 10 working days?" in text and "Answer: Calendar days." in text

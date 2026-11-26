@@ -2,13 +2,19 @@
 
 Run with:  streamlit run app.py
 
-The app is a guided 4-step flow:
-  1. Add sources      - upload documents and emails, preview them
-  2. Review           - requirements, the problems found and the analyst's decisions, together
-  3. Stories & tests  - drafted only from approved requirements, tests shown under each criterion
-  4. Export           - stories.csv, test_cases.csv, agreed_version.docx
+The app follows the SpecBridge flow. The AI does the work in the light steps; a person
+decides at each of the three checkpoints, and the next step only unlocks after that approval.
 
-It always runs in demo mode: results are replayed from demo_data/*.json.
+  1. Inputs                - upload documents and emails, preview them
+  2. AI extracts & checks  - requirements with sources, duplicates merged, problems flagged
+  3. Analyst review        - CHECKPOINT 1: accept / edit / reject (with a reason), settle
+                             conflicts, then approve
+  4. AI drafts stories     - Given/When/Then acceptance criteria for each approved requirement
+  5. Partner confirms      - CHECKPOINT 2: the partner lead confirms each agreed requirement
+  6. Tests & export        - CHECKPOINT 3: AI drafts normal, error and edge cases plus a coverage
+                             check; the tester approves the export (CSV + Word pack)
+
+It always runs in demo mode: AI results are replayed from demo_data/*.json.
 """
 
 from __future__ import annotations
@@ -29,18 +35,32 @@ from parsing import SUPPORTED_TYPES, ParsedDoc, parse_file
 # Always demo mode: AI results are replayed from demo_data/ (see README).
 DEMO_MODE = True
 
+# Signed-in user (mock, no real login)
+USER = {"name": "Mahendar", "designation": "Business Analyst", "emp_id": "EMP-10245"}
+
 PROJECT = {
     "name": "Staff leave app",
     "company": "Larkfield Retail (5,000 staff)",
     "partner": "Partner A",
-    "analyst": "Alex Morgan",
+    "analyst": USER["name"],
     "email": "specbridge+leave-app@company.com",
 }
 
-# Signed-in user (mock, no real login)
-USER = {"name": "Mahendar", "designation": "Business Analyst", "emp_id": "EMP-10245"}
-
-STEPS = ["Add sources", "Review", "Stories & tests", "Export"]
+# (name, kind) - kind: "input", "ai" (AI does the work) or "person" (a person decides)
+STEPS = [
+    ("Inputs", "input"),
+    ("AI checks", "ai"),
+    ("Analyst review", "person"),
+    ("AI stories", "ai"),
+    ("Partner confirms", "person"),
+    ("Tests & export", "person"),
+]
+STEP_ICON = {"input": ":material/upload_file:", "ai": ":material/auto_awesome:",
+             "person": ":material/person:"}
+# step index -> (checkpoint key, label, title)
+CHECKPOINTS = {2: ("cp1", "Checkpoint 1", "Analyst review"),
+               4: ("cp2", "Checkpoint 2", "Partner confirms"),
+               5: ("cp3", "Checkpoint 3", "Tests and export")}
 
 STATUS_BADGE = {  # label, colour, icon
     "pending": ("To review", "gray", ":material/schedule:"),
@@ -49,14 +69,16 @@ STATUS_BADGE = {  # label, colour, icon
     "rejected": ("Rejected", "red", ":material/close:"),
     "added": ("Added by analyst", "violet", ":material/add:"),
 }
+REJECT_REASONS = ["Noise - not a requirement", "Duplicate", "Out of scope", "Superseded", "Other"]
 ISSUE_ICON = {"Conflict": "🔴", "Gap": "🟡", "Unclear": "🟠", "Not testable": "🟠"}
 TEST_ICON = {"positive": "✅", "negative": "⛔", "boundary": "📏"}
+TEST_LABEL = {"positive": "Normal", "negative": "Error", "boundary": "Edge"}
 
 st.set_page_config(page_title="SpecBridge", page_icon="🌉", layout="wide")
 
 st.markdown("""
 <style>
-.block-container {padding-top: 2.2rem; max-width: 1150px;}
+.block-container {padding-top: 2.2rem; max-width: 1180px;}
 blockquote {margin: 0.2rem 0 0.4rem 0; padding: 0.1rem 0 0.1rem 0.8rem; opacity: 0.9;}
 div[data-testid="stMetricValue"] {font-size: 1.6rem; font-weight: 600;}
 h1 {letter-spacing: -0.02em;}
@@ -77,6 +99,17 @@ h1 {letter-spacing: -0.02em;}
 .sb-profile-row {display: flex; justify-content: space-between; font-size: 0.88rem;
                  padding: 0.15rem 0;}
 .sb-profile-row span:first-child {opacity: 0.65;}
+
+/* Checkpoint labels (as in the SpecBridge flow diagram) */
+.cp-pill {display: inline-block; font-size: 0.66rem; font-weight: 700; letter-spacing: 0.07em;
+          background: #1E3A6E; color: #fff; padding: 0.12rem 0.55rem; border-radius: 999px;}
+.cp-pill.done {background: #15803D;}
+.cp-slot {height: 1.35rem; text-align: center;}
+/* Stepper: six steps on one row without cutting the labels */
+[class*="st-key-nav_"] button {padding-left: 0.4rem; padding-right: 0.4rem; min-height: 2.6rem;}
+[class*="st-key-nav_"] button p {font-size: 0.8rem; white-space: nowrap;}
+[class*="st-key-nav_"] button [data-testid="stIconMaterial"] {font-size: 1rem;}
+.legend {font-size: 0.8rem; opacity: 0.75;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -86,15 +119,21 @@ h1 {letter-spacing: -0.02em;}
 def init_state() -> None:
     defaults = {"docs": [], "reqs": [], "issues": [], "stories": [], "tests": [], "log": [],
                 "notes": {}, "inputs_changed": False, "stories_basis": None, "stage": 0,
-                "flash": None}
+                "flash": None, "signoffs": {}, "partner_ok": {},
+                "sent_to_partner": False}
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
 
 
-def add_log(action: str, item: str, detail: str = "") -> None:
+def now() -> str:
+    return datetime.now().strftime("%d %b %Y %H:%M")
+
+
+def add_log(action: str, item: str, detail: str = "", by: str | None = None) -> None:
     st.session_state.log.append({"time": datetime.now().strftime("%H:%M:%S"),
-                                 "action": action, "item": item, "detail": detail})
+                                 "by": by or USER["name"], "action": action, "item": item,
+                                 "detail": detail})
 
 
 def flash(message: str) -> None:
@@ -118,8 +157,12 @@ def open_issues_for(rid: str) -> list[dict]:
     return [i for i in st.session_state.issues if i["status"] == "open" and rid in i["req_ids"]]
 
 
+def open_issues() -> list[dict]:
+    return [i for i in st.session_state.issues if i["status"] == "open"]
+
+
 def open_conflicts() -> list[dict]:
-    return [i for i in st.session_state.issues if i["type"] == "Conflict" and i["status"] == "open"]
+    return [i for i in open_issues() if i["type"] == "Conflict"]
 
 
 def approved_reqs() -> list[dict]:
@@ -138,18 +181,86 @@ def source_files(req: dict) -> str:
     return ", ".join(s["file"] for s in req["sources"]) or "Added by analyst"
 
 
-def review_done() -> bool:
-    return bool(st.session_state.reqs) and not pending_reqs() and not open_conflicts()
+def story_for(rid: str) -> dict | None:
+    return next((s for s in st.session_state.stories if rid in s["req_ids"]), None)
 
+
+def partner_confirmed(req: dict) -> bool:
+    return st.session_state.partner_ok.get(req["id"]) == req["text"]
+
+
+# ---------------------------------------------------------------- checkpoints
+
+def cp_valid(cp: str) -> bool:
+    """A checkpoint counts only while what was approved is still unchanged."""
+    s = st.session_state
+    so = s.signoffs.get(cp)
+    if not so or so["basis"] != approved_basis():
+        return False
+    if cp == "cp1":
+        return True
+    if cp == "cp2":
+        return cp_valid("cp1") and s.stories_basis == approved_basis()
+    return cp_valid("cp2") and bool(s.tests)
+
+
+def record_signoff(cp: str, by: str, role: str) -> None:
+    label, title = next((v[1], v[2]) for v in CHECKPOINTS.values() if v[0] == cp)
+    st.session_state.signoffs[cp] = {"checkpoint": label, "title": title, "by": by, "role": role,
+                                     "time": now(), "basis": approved_basis()}
+    add_log("Checkpoint approved", f"{label} · {title}", f"Approved by {by} ({role})", by=by)
+
+
+def approvals_for_export() -> list[dict]:
+    return [st.session_state.signoffs[cp] for cp in ("cp1", "cp2", "cp3") if cp_valid(cp)]
+
+
+def cp1_conditions() -> list[tuple[bool, str]]:
+    s = st.session_state
+    pending = len(pending_reqs())
+    return [
+        (not pending, "Every requirement accepted, edited or rejected"
+         + (f" ({pending} still to review)" if pending else "")),
+        (not open_issues(), "Every conflict and flagged issue decided"
+         + (f" ({len(open_issues())} open)" if open_issues() else "")),
+        (not s.inputs_changed, "Requirements match the current sources"),
+        (bool(approved_reqs()), "At least one approved requirement"),
+    ]
+
+
+def cp2_conditions() -> list[tuple[bool, str]]:
+    agreed = approved_reqs()
+    done = sum(1 for r in agreed if partner_confirmed(r))
+    return [
+        (done == len(agreed) and bool(agreed),
+         f"Partner lead confirmed every agreed requirement ({done} of {len(agreed)})"),
+    ]
+
+
+def cp3_conditions() -> list[tuple[bool, str]]:
+    s = st.session_state
+    cov = checks.coverage(s.stories, s.tests)
+    covered = sum(1 for c in cov if c["tests"] > 0)
+    return [
+        (bool(s.tests), "Test cases drafted (normal, error and edge cases)"),
+        (bool(cov) and covered == len(cov),
+         f"Every acceptance criterion has a test ({covered} of {len(cov)})"),
+    ]
+
+
+# ---------------------------------------------------------------- steps
 
 def step_unlocked(i: int) -> bool:
     s = st.session_state
-    return [True, bool(s.reqs), bool(s.stories), bool(s.stories)][i]
+    stories_ok = cp_valid("cp1") and bool(s.stories)
+    return [True, bool(s.reqs), bool(s.reqs), stories_ok, stories_ok and s.sent_to_partner,
+            cp_valid("cp2")][i]
 
 
 def step_done(i: int) -> bool:
     s = st.session_state
-    return [bool(s.reqs), review_done(), bool(s.tests), False][i]
+    return [bool(s.reqs), bool(s.reqs), cp_valid("cp1"),
+            cp_valid("cp1") and s.sent_to_partner, cp_valid("cp2"), cp_valid("cp3")][i]
 
 
 def go(i: int) -> None:
@@ -190,6 +301,24 @@ def set_status(rid: str, status: str, detail: str = "") -> None:
     add_log(status.capitalize(), rid, detail or req["text"])
     if status == "rejected":
         _resolve_after_reject(rid)
+
+
+def start_reject(rid: str) -> None:
+    st.session_state[f"rejecting_{rid}"] = True
+
+
+def cancel_reject(rid: str) -> None:
+    st.session_state[f"rejecting_{rid}"] = False
+
+
+def confirm_reject(rid: str) -> None:
+    reason = st.session_state.get(f"rej_reason_{rid}") or REJECT_REASONS[0]
+    extra = (st.session_state.get(f"rej_note_{rid}") or "").strip()
+    note = reason + (f": {extra}" if extra else "")
+    find_req(rid)["note"] = note
+    st.session_state[f"rejecting_{rid}"] = False
+    set_status(rid, "rejected", note)
+    flash(f"{rid} rejected ({reason.lower()}).")
 
 
 def _resolve_after_reject(rid: str) -> None:
@@ -280,7 +409,7 @@ def custom_conflict(iid: str) -> None:
 
 
 def resolve_issue(iid: str) -> None:
-    note = (st.session_state.get(f"res_note_{iid}") or "").strip() or "Resolved by analyst"
+    note = (st.session_state.get(f"res_note_{iid}") or "").strip() or "Dismissed by analyst"
     _resolve(find_issue(iid), note)
 
 
@@ -304,6 +433,50 @@ def add_requirement() -> None:
     flash(f"Added {rid}.")
 
 
+# ---------------------------------------------------------------- partner and tester
+
+def partner_name() -> str:
+    return (st.session_state.get("partner_name") or "").strip() or "Partner lead"
+
+
+def tester_name() -> str:
+    return (st.session_state.get("tester_name") or "").strip() or "Tester"
+
+
+def partner_confirm(rid: str) -> None:
+    req = find_req(rid)
+    st.session_state.partner_ok[rid] = req["text"]
+    add_log("Partner confirmed", rid, req["text"], by=partner_name())
+
+
+def partner_confirm_all() -> None:
+    n = 0
+    for r in approved_reqs():
+        if not partner_confirmed(r):
+            partner_confirm(r["id"])
+            n += 1
+    flash(f"Partner lead confirmed {n} requirement{'s' if n != 1 else ''}.")
+
+
+def send_to_partner() -> None:
+    st.session_state.sent_to_partner = True
+    st.session_state.stage = 4
+    add_log("Sent to partner", "Agreed requirements",
+            f"{len(approved_reqs())} requirements and {len(st.session_state.stories)} stories")
+    flash("Sent to the partner lead for confirmation.")
+
+
+def approve_cp2() -> None:
+    record_signoff("cp2", partner_name(), "Partner lead")
+    st.session_state.stage = 5
+    flash("Checkpoint 2 approved: the partner lead confirmed the agreed requirements.")
+
+
+def approve_cp3() -> None:
+    record_signoff("cp3", tester_name(), "Tester")
+    flash("Checkpoint 3 approved: the export is ready.")
+
+
 # ====================================================================== AI runs
 
 def spinner_step(label: str):
@@ -323,11 +496,14 @@ def run_find_requirements() -> bool:
                                              f"({type(exc).__name__}). Please try again."]
         return False
     st.session_state.update(reqs=reqs, issues=issues, stories=[], tests=[], inputs_changed=False,
-                            stories_basis=None)
+                            stories_basis=None, signoffs={}, partner_ok={},
+                            sent_to_partner=False)
     st.session_state.notes["extract"] = notes + issue_notes
-    for k in [k for k in st.session_state.keys() if str(k).startswith("editing_")]:
+    for k in [k for k in st.session_state.keys()
+              if str(k).startswith(("editing_", "rejecting_"))]:
         st.session_state[k] = False
-    add_log("AI run", "Requirements", f"{len(reqs)} requirements and {len(issues)} issues found")
+    add_log("AI run", "Requirements", f"{len(reqs)} requirements and {len(issues)} issues found",
+            by="SpecBridge AI")
     flash(f"Found {len(reqs)} requirements and {len(issues)} "
           f"issue{'s' if len(issues) != 1 else ''} to look at.")
     return True
@@ -342,21 +518,36 @@ def run_issue_recheck() -> None:
         return
     st.session_state.issues = issues
     st.session_state.notes["extract"] = notes
-    add_log("AI run", "Issues", f"{len(issues)} issues found")
+    add_log("AI run", "Issues", f"{len(issues)} issues found", by="SpecBridge AI")
 
 
-def run_draft_stories_and_tests() -> bool:
+def run_draft_stories() -> bool:
+    s = st.session_state
     try:
-        stories, notes = ai.run_stories(st.session_state.reqs, _provider(), DEMO_MODE, step=spinner_step)
-        tests, test_notes = ai.run_tests(stories, _provider(), DEMO_MODE, step=spinner_step)
+        stories, notes = ai.run_stories(s.reqs, _provider(), DEMO_MODE, step=spinner_step)
     except Exception as exc:
-        st.session_state.notes["stories"] = [f"Drafting failed ({type(exc).__name__}). Please try again."]
+        s.notes["stories"] = [f"Drafting failed ({type(exc).__name__}). Please try again."]
         return False
-    st.session_state.update(stories=stories, tests=tests, stories_basis=approved_basis())
-    st.session_state.notes["stories"] = notes + test_notes
-    add_log("AI run", "User stories", f"{len(stories)} stories drafted")
-    add_log("AI run", "Test cases", f"{len(tests)} test cases drafted")
-    flash(f"Drafted {len(stories)} user stories and {len(tests)} test cases.")
+    s.update(stories=stories, tests=[], stories_basis=approved_basis(), sent_to_partner=False)
+    s.signoffs.pop("cp2", None)
+    s.signoffs.pop("cp3", None)
+    s.notes["stories"] = notes
+    add_log("AI run", "User stories", f"{len(stories)} stories drafted", by="SpecBridge AI")
+    return True
+
+
+def run_draft_tests() -> bool:
+    s = st.session_state
+    try:
+        tests, notes = ai.run_tests(s.stories, _provider(), DEMO_MODE, step=spinner_step)
+    except Exception as exc:
+        s.notes["tests"] = [f"Drafting the tests failed ({type(exc).__name__}). Please try again."]
+        return False
+    s.tests = tests
+    s.signoffs.pop("cp3", None)
+    s.notes["tests"] = notes
+    add_log("AI run", "Test cases", f"{len(tests)} test cases drafted", by="SpecBridge AI")
+    flash(f"Drafted {len(tests)} test cases.")
     return True
 
 
@@ -373,10 +564,10 @@ def render_sidebar() -> None:
     sb.caption("Scattered requirements in. One agreed list out. "
                "The AI only drafts. A person approves everything.")
 
-    reqs, issues = st.session_state.reqs, st.session_state.issues
+    s = st.session_state
+    reqs, issues = s.reqs, s.issues
     count = lambda status: sum(1 for r in reqs if r["status"] == status)  # noqa: E731
-    open_n = sum(1 for i in issues if i["status"] == "open")
-    ready = checks.ready_to_build(st.session_state.stories, st.session_state.tests, reqs, issues)
+    open_n = len(open_issues())
     rows = [
         ("Requirements found", sum(1 for r in reqs if r["origin"] == "ai"), ""),
         ("Issues flagged", len(issues), f"{open_n} open" if open_n else ""),
@@ -394,29 +585,66 @@ def render_sidebar() -> None:
                    for label, value, extra in rows)
     sb.markdown("#### Summary")
     sb.markdown(f"<div style='font-size:0.9rem'>{html}</div>", unsafe_allow_html=True)
-    sb.metric("Stories ready to build", f"{len(ready)} of {len(st.session_state.stories)}",
+
+    sb.markdown("#### Checkpoints")
+    cp_rows = []
+    for cp, label, title in CHECKPOINTS.values():
+        so = s.signoffs.get(cp)
+        if cp_valid(cp):
+            status = f"<small style='opacity:0.7'>{so['by']} · {so['time']}</small>"
+            mark = "✅"
+        elif so:
+            status = "<small style='color:#c2410c'>changed - approve again</small>"
+            mark = "⚠️"
+        else:
+            status = "<small style='opacity:0.6'>waiting</small>"
+            mark = "⏳"
+        cp_rows.append(f"<div style='padding:0.3rem 0;border-bottom:1px solid "
+                       f"rgba(128,128,128,0.15)'>{mark} <b>{label}</b> · {title}<br>"
+                       f"<span style='margin-left:1.5rem'>{status}</span></div>")
+    sb.markdown(f"<div style='font-size:0.88rem'>{''.join(cp_rows)}</div>", unsafe_allow_html=True)
+
+    ready = checks.ready_to_build(s.stories, s.tests, reqs, issues)
+    sb.metric("Stories ready to build", f"{len(ready)} of {len(s.stories)}",
               help="Approved, every acceptance criterion has a test, and no open issues.")
 
     with sb.expander("How SpecBridge works"):
         st.markdown(
-            "1. **Add sources**: documents and emails where requirements are scattered.\n"
-            "2. **Review**: the AI pulls out each requirement with the exact words it came "
-            "from, flags conflicts, gaps and unclear wording, and you decide.\n"
-            "3. **Stories & tests**: drafted only from what you approved.\n"
-            "4. **Export**: CSV files for Jira and a Word document of the agreed version.")
-    if st.session_state.docs:
+            "1. **Inputs**: emails copied to one tagged address, or files uploaded.\n"
+            "2. **AI extracts and checks**: requirements with their source, duplicates merged, "
+            "conflicts, gaps and vague words flagged.\n"
+            "3. **Analyst review** · *Checkpoint 1*: accept, edit or reject each item, dismiss "
+            "noise with a reason.\n"
+            "4. **AI drafts user stories** with Given/When/Then criteria.\n"
+            "5. **Partner confirms** · *Checkpoint 2*: the partner lead confirms each agreed "
+            "requirement.\n"
+            "6. **Tests and export** · *Checkpoint 3*: AI drafts normal, error and edge cases "
+            "with a coverage check; the tester approves the export.")
+    if s.docs:
         sb.button("↺ Start over", key="start_over", on_click=start_over, width="stretch")
 
 
 # ====================================================================== stepper
 
 def render_stepper() -> None:
-    cols = st.columns(len(STEPS))
-    for i, (col, name) in enumerate(zip(cols, STEPS)):
-        mark = "✓" if step_done(i) and i != st.session_state.stage else str(i + 1)
-        col.button(f"{mark}  {name}", key=f"nav_{i}", on_click=go, args=(i,),
-                   type="primary" if i == st.session_state.stage else "secondary",
+    s = st.session_state
+    cols = st.columns(len(STEPS), gap="small")
+    for i, (col, (name, kind)) in enumerate(zip(cols, STEPS)):
+        cp = CHECKPOINTS.get(i)
+        if cp:
+            done = cp_valid(cp[0])
+            col.markdown(f"<div class='cp-slot'><span class='cp-pill{' done' if done else ''}'>"
+                         f"{cp[1].upper()}</span></div>", unsafe_allow_html=True)
+        else:
+            col.markdown("<div class='cp-slot'></div>", unsafe_allow_html=True)
+        done = step_done(i) and i != s.stage
+        col.button(f"{i + 1} · {name}", key=f"nav_{i}", on_click=go, args=(i,),
+                   icon=":material/check_circle:" if done else STEP_ICON[kind],
+                   type="primary" if i == s.stage else "secondary",
                    disabled=not step_unlocked(i), width="stretch")
+    st.markdown("<div class='legend'>✨ AI does the work &nbsp;·&nbsp; 👤 A person decides "
+                "&nbsp;·&nbsp; each checkpoint must be approved before the next step unlocks"
+                "</div>", unsafe_allow_html=True)
 
 
 def next_hint() -> str:
@@ -424,24 +652,99 @@ def next_hint() -> str:
     if not s.docs:
         return "Start by uploading the documents and emails for this project."
     if not s.reqs:
-        return "Next: find the requirements in your sources."
-    if open_conflicts():
-        return f"Next: decide {len(open_conflicts())} conflict(s)."
-    if pending_reqs():
-        return f"Next: review {len(pending_reqs())} requirement(s)."
-    if not s.stories:
-        return "Review finished. Next: draft the user stories and tests."
-    if s.stage == 3:
-        return "Download your files below and share them with the build partner."
-    return "Everything is drafted. Download your files in Export."
+        return "Next: let the AI find the requirements in your sources."
+    if not cp_valid("cp1"):
+        if s.stage < 2:
+            return "Next: start the analyst review."
+        if open_conflicts():
+            return f"Next: decide {len(open_conflicts())} conflict(s)."
+        if pending_reqs():
+            return f"Next: review {len(pending_reqs())} requirement(s)."
+        if open_issues():
+            return f"Next: resolve or dismiss {len(open_issues())} flagged issue(s)."
+        return "Review finished. Next: approve Checkpoint 1."
+    if not s.sent_to_partner:
+        return "Next: check the drafted stories and send them to the partner lead."
+    if not cp_valid("cp2"):
+        return "Next: the partner lead confirms each requirement (Checkpoint 2)."
+    if not s.tests:
+        return "Next: let the AI draft the test cases."
+    if not cp_valid("cp3"):
+        return "Next: the tester approves the export (Checkpoint 3)."
+    return "All three checkpoints approved. Download the export pack."
 
 
-# ====================================================================== step 1: sources
+# ====================================================================== shared pieces
 
-def step_sources() -> None:
+def render_checkpoint(cp_key: str, conditions: list[tuple[bool, str]], approver: str,
+                      button_label: str, button_key: str, on_click=None) -> bool:
+    """Checkpoint card: what must be true, who approves, and the approve button."""
+    label, title = next((v[1], v[2]) for v in CHECKPOINTS.values() if v[0] == cp_key)
+    so = st.session_state.signoffs.get(cp_key)
+    clicked = False
+    with st.container(border=True):
+        done = cp_valid(cp_key)
+        st.markdown(f"<span class='cp-pill{' done' if done else ''}'>{label.upper()}</span> "
+                    f"&nbsp;<b>{title}</b>", unsafe_allow_html=True)
+        if done:
+            st.success(f"Approved by **{so['by']}** ({so['role']}) · {so['time']}",
+                       icon=":material/verified:")
+            return False
+        if so:
+            st.warning("Something changed after this checkpoint was approved, so it has to be "
+                       "approved again.", icon=":material/history:")
+        for ok, text in conditions:
+            st.markdown(f"{'✅' if ok else '⬜'} {text}")
+        all_ok = all(ok for ok, _ in conditions)
+        left, right = st.columns([3, 2], vertical_alignment="center")
+        left.caption(f"Approver: **{approver}**" + ("" if all_ok else
+                     " · the button unlocks when every item above is ticked."))
+        clicked = right.button(button_label, key=button_key, type="primary", disabled=not all_ok,
+                               icon=":material/verified:", width="stretch", on_click=on_click)
+    return clicked
+
+
+def render_log() -> None:
+    if st.session_state.log:
+        df = pd.DataFrame(st.session_state.log)
+        st.dataframe(df[["time", "by", "action", "item", "detail"]], hide_index=True,
+                     width="stretch")
+    else:
+        st.caption("Nothing recorded yet.")
+
+
+def render_requirements_table() -> None:
+    rows = [{
+        "ID": r["id"],
+        "Requirement": r["text"],
+        "Type": r["type"],
+        "Status": STATUS_BADGE[r["status"]][0],
+        "Source file": "\n".join(s["file"] for s in r["sources"]) or "Added by analyst",
+        "Quoted source text": "\n".join(f"“{s['quote']}”" for s in r["sources"]),
+        "Source check": ("✅ Verified" if checks.is_verified(r) else "🟠 Source not verified")
+        if r["sources"] else "—",
+    } for r in st.session_state.reqs]
+    styled = pd.DataFrame(rows).style.map(
+        lambda v: "color: #c2410c; font-weight: 600" if "not verified" in str(v) else "",
+        subset=["Source check"])
+    st.dataframe(styled, hide_index=True, width="stretch",
+                 column_config={"Requirement": st.column_config.TextColumn(width="large"),
+                                "Quoted source text": st.column_config.TextColumn(width="large")})
+
+
+def footer(left_text: str) -> tuple:
+    st.divider()
+    left, right = st.columns([3, 2], vertical_alignment="center")
+    left.caption(left_text)
+    return left, right
+
+
+# ====================================================================== 1 · inputs
+
+def step_inputs() -> None:
     st.markdown("### Where are the requirements?")
-    st.caption("Add the documents and emails for this project. "
-               "Accepted: .docx, .pdf, .txt, .eml, .msg")
+    st.caption("Emails copied to the project's tagged address arrive here automatically; private "
+               "inboxes are never scanned. You can also upload files: .docx, .pdf, .txt, .eml, .msg")
     with st.container(border=True):
         st.file_uploader("**⬆️ Upload files**", type=SUPPORTED_TYPES,
                          accept_multiple_files=True, key="uploader", on_change=on_upload)
@@ -455,16 +758,14 @@ def step_sources() -> None:
             with cols[n % 2].container(border=True):
                 render_source(doc)
 
-    st.divider()
     ready = [d for d in loaded if not d.error]
     if st.session_state.inputs_changed:
         st.warning("The sources changed since the requirements were found. "
                    "Find them again to include the changes.")
-    left, right = st.columns([3, 2])
-    left.caption("SpecBridge reads each file separately, pulls out every requirement with its "
-                 "exact source words, and checks them for problems.")
+    _, right = footer("The AI reads each file separately, pulls out every requirement with its "
+                      "exact source words, and checks them for problems.")
     if right.button("Find requirements  →", key="find_reqs", type="primary", disabled=not ready,
-                    width="stretch"):
+                    width="stretch", icon=":material/auto_awesome:"):
         if run_find_requirements():
             st.session_state.stage = 1
         st.rerun()
@@ -492,33 +793,76 @@ def render_source(doc: ParsedDoc) -> None:
         st.text(doc.text)
 
 
-# ====================================================================== step 2: review
+# ====================================================================== 2 · AI extracts and checks
+
+def step_ai_checks() -> None:
+    s = st.session_state
+    if not s.reqs:
+        st.info("Add your sources and let the AI find the requirements first.")
+        return
+    show_notes("extract")
+    st.markdown("### What the AI found")
+    st.caption("Nothing here is agreed yet. The analyst decides on every item at Checkpoint 1.")
+    merged = sum(1 for r in s.reqs if len({x["file"] for x in r["sources"]}) > 1)
+    unverified = sum(1 for r in s.reqs if r["sources"] and not checks.is_verified(r))
+    m = st.columns(4)
+    m[0].metric("Sources read", len([d for d in s.docs if not d.get("error")]))
+    m[1].metric("Requirements found", len(s.reqs))
+    m[2].metric("Duplicates merged", merged)
+    m[3].metric("Problems flagged", len(s.issues))
+    if unverified:
+        st.warning(f"{unverified} quote(s) could not be found in the source. They are marked "
+                   "**Source not verified**.", icon="🟠")
+
+    st.markdown("#### Problems flagged")
+    if not s.issues:
+        st.caption("No conflicts, gaps or vague wording found.")
+    for i in s.issues:
+        with st.container(border=True):
+            st.markdown(f"{ISSUE_ICON.get(i['type'], '')} **{i['type']}** · "
+                        f"{', '.join(i['req_ids'])}  \n{i['explanation']}")
+            st.caption(f"💡 {i['suggestion']}")
+
+    st.markdown("#### Requirements with their sources")
+    render_requirements_table()
+
+    _, right = footer("Next, the analyst accepts, edits or rejects each item.")
+    right.button("Start analyst review  →", key="start_review", type="primary", on_click=go,
+                 args=(2,), width="stretch", icon=":material/person:")
+
+
+# ====================================================================== 3 · analyst review (CP1)
 
 def step_review() -> None:
-    reqs = st.session_state.reqs
+    s = st.session_state
+    reqs = s.reqs
     if not reqs:
         st.info("Find the requirements first.")
         return
-    show_notes("extract")
     show_notes("review")
-    if st.session_state.inputs_changed:
+    if s.inputs_changed:
         st.warning("The sources changed since these requirements were found. "
-                   "Go back to **Add sources** and find them again.")
+                   "Go back to **Inputs** and find them again.")
 
-    issues = st.session_state.issues
-    open_n = sum(1 for i in issues if i["status"] == "open")
     m = st.columns(4)
     m[0].metric("Requirements", len(reqs))
     m[1].metric("Decisions needed", len(open_conflicts()))
-    m[2].metric("Open issues", open_n)
+    m[2].metric("Open issues", len(open_issues()))
     m[3].metric("Waiting for review", len(pending_reqs()))
 
     # ---- conflicts first: they block everything else
-    for issue in [i for i in issues if i["type"] == "Conflict"]:
-        render_conflict(issue)
+    conflicts = [i for i in s.issues if i["type"] == "Conflict"]
+    if conflicts:
+        st.markdown(f"### 🔴 Conflicts ({len(open_conflicts())} to decide)")
+        for issue in conflicts:
+            render_conflict(issue)
 
-    # ---- the requirement list
-    st.markdown("### Requirements")
+    # ---- the requirement list: requirements in an open conflict are decided above, not here
+    in_open_conflict = {rid for i in open_conflicts() for rid in i["req_ids"]}
+    st.markdown("### Requirements without conflicts" if in_open_conflict else "### Requirements")
+    if in_open_conflict:
+        st.caption(f"{', '.join(sorted(in_open_conflict))} are decided in the conflict above "
+                   "and appear here once it is settled.")
     bar_l, bar_r = st.columns([3, 2])
     with bar_l:
         choice = st.segmented_control("Show", ["All", "To review", "Approved", "Rejected"],
@@ -528,7 +872,8 @@ def step_review() -> None:
                  help="Accepts every requirement still waiting, except ones in an open conflict.")
     wanted = {"To review": ("pending",), "Approved": checks.APPROVED,
               "Rejected": ("rejected",)}.get(choice or "All")
-    shown = [r for r in reqs if wanted is None or r["status"] in wanted]
+    shown = [r for r in reqs if (wanted is None or r["status"] in wanted)
+             and r["id"] not in in_open_conflict]
     if not shown:
         st.caption("Nothing to show here.")
     for r in shown:
@@ -544,10 +889,7 @@ def step_review() -> None:
                       placeholder="e.g. Agreed with HR lead on a call")
         st.button("Add requirement", key="add_req", on_click=add_requirement, type="primary")
 
-    with st.expander("📋 Table view with sources"):
-        render_requirements_table()
-
-    resolved = [i for i in issues if i["status"] == "resolved"]
+    resolved = [i for i in s.issues if i["status"] == "resolved"]
     with st.expander(f"✅ Resolved issues ({len(resolved)})"):
         if not resolved:
             st.caption("None yet.")
@@ -557,26 +899,26 @@ def step_review() -> None:
                         f":green[Decision: {i['resolution']}]")
         st.button("Run the checks again", key="recheck_issues", on_click=run_issue_recheck,
                   help="Runs the problem checks again. Earlier decisions on issues are cleared.")
-
-    with st.expander(f"🕑 Decision log ({len(st.session_state.log)})"):
+    with st.expander(f"🕑 Decision log ({len(s.log)})"):
         render_log()
 
-    # ---- next step
+    # ---- checkpoint 1
     st.divider()
-    approved = approved_reqs()
-    left, right = st.columns([3, 2])
-    if open_conflicts():
-        left.caption(":orange[Decide the conflict above first. "
-                     "Stories are drafted only from requirements you approved.]")
-    elif pending_reqs():
-        left.caption(f"{len(pending_reqs())} requirement(s) still waiting for review will be left out.")
-    else:
-        left.caption(f"All set: {len(approved)} approved requirement(s) will become user stories.")
-    if right.button("Draft stories and tests  →", key="make_stories", type="primary",
-                    disabled=not approved, width="stretch"):
-        if run_draft_stories_and_tests():
-            st.session_state.stage = 2
+    clicked = render_checkpoint("cp1", cp1_conditions(), f"{USER['name']} ({USER['designation']})",
+                                "Approve review", "approve_cp1")
+    if clicked:
+        record_signoff("cp1", USER["name"], USER["designation"])
+        if s.stories_basis == approved_basis() and s.stories:
+            flash("Checkpoint 1 approved again. The stories still match.")
+        elif run_draft_stories():
+            flash(f"Checkpoint 1 approved. The AI drafted {len(s.stories)} user stories.")
+        s.stage = 4 if (s.sent_to_partner and s.stories_basis == approved_basis()) else 3
         st.rerun()
+    if cp_valid("cp1"):
+        target = 4 if s.sent_to_partner else 3
+        _, right = st.columns([3, 2])
+        right.button(f"Continue to {STEPS[target][0]}  →", key="review_next", type="primary",
+                     on_click=go, args=(target,), width="stretch")
 
 
 def render_conflict(issue: dict) -> None:
@@ -596,8 +938,8 @@ def render_conflict(issue: dict) -> None:
         for col, r in zip(cols, involved):
             with col.container(border=True):
                 st.markdown(f"**{r['id']}** · {source_files(r)}")
-                for s in r["sources"]:
-                    st.markdown(f"> “{s['quote']}”")
+                for src in r["sources"]:
+                    st.markdown(f"> “{src['quote']}”")
                 st.caption(r["text"])
                 st.button(f"Keep {r['id']}", key=f"keep_{iid}_{r['id']}", type="primary",
                           on_click=keep_in_conflict, args=(iid, r["id"]), width="stretch")
@@ -619,15 +961,15 @@ def render_requirement(r: dict) -> None:
         with badges:
             row = st.container(horizontal=True, horizontal_alignment="right")
             row.badge(label, color=color, icon=icon)
-            n_files = len({s["file"] for s in r["sources"]})
+            n_files = len({x["file"] for x in r["sources"]})
             if n_files > 1:
                 row.badge(f"Merged from {n_files} files", color="blue", icon=":material/merge:")
             if r["sources"] and not checks.is_verified(r):
                 row.badge("Source not verified", color="orange", icon=":material/warning:")
         st.markdown(f"**{r['text']}**" if r["status"] != "rejected" else f"~~{r['text']}~~")
-        for s in r["sources"]:
-            mark = "" if s["verified"] else " · :orange[quote not found in source]"
-            st.markdown(f"> “{s['quote']}”  \n> <small>— {s['file']}</small>{mark}",
+        for src in r["sources"]:
+            mark = "" if src["verified"] else " · :orange[quote not found in source]"
+            st.markdown(f"> “{src['quote']}”  \n> <small>— {src['file']}</small>{mark}",
                         unsafe_allow_html=True)
         if r.get("note"):
             st.caption(f"Note: {r['note']}")
@@ -641,10 +983,10 @@ def render_requirement(r: dict) -> None:
                             f"{issue['explanation']}")
                 st.caption(f"💡 {issue['suggestion']}")
                 c1, c2 = st.columns([4, 1])
-                c1.text_input("How was it resolved?", key=f"res_note_{issue['id']}",
+                c1.text_input("Reason", key=f"res_note_{issue['id']}",
                               label_visibility="collapsed",
-                              placeholder="How was it resolved? (or edit the requirement)")
-                c2.button("Resolve", key=f"resolve_{issue['id']}", on_click=resolve_issue,
+                              placeholder="Resolved how, or why dismiss it? (or edit the requirement)")
+                c2.button("Resolve / dismiss", key=f"resolve_{issue['id']}", on_click=resolve_issue,
                           args=(issue["id"],), width="stretch")
 
         if st.session_state.get(f"editing_{rid}"):
@@ -653,6 +995,15 @@ def render_requirement(r: dict) -> None:
             e.button("Save", key=f"save_{rid}", on_click=save_edit, args=(rid,), type="primary")
             e.button("Cancel", key=f"cancel_{rid}", on_click=cancel_edit, args=(rid,))
             return
+        if st.session_state.get(f"rejecting_{rid}"):
+            c1, c2 = st.columns([1, 2])
+            c1.selectbox("Reason for rejecting", REJECT_REASONS, key=f"rej_reason_{rid}")
+            c2.text_input("Details (optional)", key=f"rej_note_{rid}")
+            e = st.container(horizontal=True)
+            e.button("Reject", key=f"confirm_reject_{rid}", on_click=confirm_reject, args=(rid,),
+                     type="primary", icon=":material/close:")
+            e.button("Cancel", key=f"cancel_reject_{rid}", on_click=cancel_reject, args=(rid,))
+            return
         actions = st.container(horizontal=True)
         if r["status"] != "added":
             actions.button("Accept", key=f"accept_{rid}", on_click=set_status, args=(rid, "accepted"),
@@ -660,71 +1011,169 @@ def render_requirement(r: dict) -> None:
                            disabled=r["status"] == "accepted" or in_conflict)
         actions.button("Edit", key=f"edit_{rid}", on_click=start_edit, args=(rid,),
                        icon=":material/edit:")
-        actions.button("Reject", key=f"reject_{rid}", on_click=set_status, args=(rid, "rejected"),
+        actions.button("Reject", key=f"reject_{rid}", on_click=start_reject, args=(rid,),
                        icon=":material/close:", disabled=r["status"] == "rejected")
 
 
-def render_requirements_table() -> None:
-    rows = [{
-        "ID": r["id"],
-        "Requirement": r["text"],
-        "Type": r["type"],
-        "Status": STATUS_BADGE[r["status"]][0],
-        "Source file": "\n".join(s["file"] for s in r["sources"]) or "Added by analyst",
-        "Quoted source text": "\n".join(f"“{s['quote']}”" for s in r["sources"]),
-        "Source check": ("✅ Verified" if checks.is_verified(r) else "🟠 Source not verified")
-        if r["sources"] else "—",
-    } for r in st.session_state.reqs]
-    styled = pd.DataFrame(rows).style.map(
-        lambda v: "color: #c2410c; font-weight: 600" if "not verified" in str(v) else "",
-        subset=["Source check"])
-    st.dataframe(styled, hide_index=True, width="stretch",
-                 column_config={"Requirement": st.column_config.TextColumn(width="large"),
-                                "Quoted source text": st.column_config.TextColumn(width="large")})
-
-
-def render_log() -> None:
-    if st.session_state.log:
-        st.dataframe(pd.DataFrame(st.session_state.log), hide_index=True, width="stretch")
-    else:
-        st.caption("Nothing recorded yet.")
-
-
-# ====================================================================== step 3: stories & tests
+# ====================================================================== 4 · AI drafts stories
 
 def step_stories() -> None:
     s = st.session_state
     if not s.stories:
-        st.info("Approve some requirements in **Review** first.")
+        st.info("Approve Checkpoint 1 in **Analyst review** first.")
         return
     show_notes("stories")
-    if s.stories_basis != approved_basis():
-        c1, c2 = st.columns([3, 1])
-        c1.info("The approved requirements changed since these were drafted.")
-        if c2.button("Draft again", key="redraft", width="stretch"):
-            run_draft_stories_and_tests()
-            st.rerun()
+    st.markdown("### User stories drafted by the AI")
+    st.caption("One story per approved requirement, with Given/When/Then acceptance criteria. "
+               "Only requirements approved at Checkpoint 1 were used.")
+    m = st.columns(3)
+    m[0].metric("User stories", len(s.stories))
+    m[1].metric("Acceptance criteria", sum(len(x["criteria"]) for x in s.stories))
+    m[2].metric("Approved requirements", len(approved_reqs()))
+    for story in s.stories:
+        render_story(story, show_tests=False)
+
+    _, right = footer("Next, the partner lead confirms the agreed requirements before anything "
+                      "is built.")
+    if s.sent_to_partner:
+        right.button("Go to Partner confirms  →", key="to_partner", type="primary", on_click=go,
+                     args=(4,), width="stretch")
+    else:
+        right.button("Send to partner lead  →", key="send_partner", type="primary",
+                     on_click=send_to_partner, width="stretch", icon=":material/send:")
+
+
+def render_story(story: dict, show_tests: bool, ready: bool = False) -> None:
+    s = st.session_state
+    with st.container(border=True):
+        head, badges = st.columns([3, 2])
+        head.markdown(f"#### {story['id']} · {story['title']}")
+        if show_tests:
+            with badges:
+                row = st.container(horizontal=True, horizontal_alignment="right")
+                if ready:
+                    row.badge("Ready to build", color="green", icon=":material/rocket_launch:")
+                else:
+                    row.badge("Not ready yet", color="orange", icon=":material/pending:")
+        st.markdown(f"_{story['description']}_")
+        drafted = {"live": "the local AI", "demo": "AI (demo run)",
+                   "template": "placeholder - please review"}.get(story.get("drafted_by"), "")
+        st.caption(f"Linked to {', '.join(story['req_ids'])} · Source: {'; '.join(story['sources'])}"
+                   + (f" · Drafted by {drafted}" if drafted else ""))
+        for c in story["criteria"]:
+            st.markdown(f"**{c['id']}** · **Given** {c['given']}, **when** {c['when']}, "
+                        f"**then** {c['then']}")
+            if not show_tests:
+                continue
+            tests = [t for t in s.tests if t["criterion_id"] == c["id"]]
+            if not tests:
+                st.markdown(":orange[⚠️ No test for this criterion yet.]")
+                continue
+            for t in tests:
+                st.markdown(
+                    f"<div style='margin-left:1.2rem; font-size:0.9rem'>"
+                    f"{TEST_ICON.get(t['type'], '')} <b>{t['id']}</b> "
+                    f"<span style='opacity:0.7'>{TEST_LABEL.get(t['type'], t['type'])}</span> · "
+                    f"{t['steps']} → <i>{t['expected']}</i></div>", unsafe_allow_html=True)
+
+
+# ====================================================================== 5 · partner confirms (CP2)
+
+def step_partner() -> None:
+    s = st.session_state
+    if not (cp_valid("cp1") and s.sent_to_partner):
+        st.info("The analyst sends the agreed requirements here after Checkpoint 1.")
+        return
+    show_notes("partner")
+    st.markdown("### Partner lead review")
+    c1, c2 = st.columns([3, 2], vertical_alignment="bottom")
+    c1.caption("The build partner's lead reviews the agreed requirements and confirms each one.")
+    if "partner_name" not in s:
+        s.partner_name = "Partner lead"
+    c2.text_input("Reviewing as", key="partner_name")
+
+    agreed = approved_reqs()
+    confirmed = sum(1 for r in agreed if partner_confirmed(r))
+    m = st.columns(2)
+    m[0].metric("Agreed requirements", len(agreed))
+    m[1].metric("Confirmed", f"{confirmed} of {len(agreed)}")
+
+    _, bar_r = st.columns([3, 2])
+    bar_r.button("Confirm all remaining", key="pconfirm_all", on_click=partner_confirm_all,
+                 icon=":material/done_all:", width="stretch",
+                 disabled=confirmed == len(agreed) or cp_valid("cp2"))
+    for r in agreed:
+        render_partner_item(r)
+
+    st.divider()
+    render_checkpoint("cp2", cp2_conditions(), f"{partner_name()} (Partner lead)",
+                      "Confirm agreed requirements", "approve_cp2", on_click=approve_cp2)
+    if cp_valid("cp2"):
+        _, right = st.columns([3, 2])
+        right.button("Continue to Tests & export  →", key="partner_next", type="primary",
+                     on_click=go, args=(5,), width="stretch")
+
+
+def render_partner_item(r: dict) -> None:
+    rid = r["id"]
+    story = story_for(rid)
+    with st.container(border=True):
+        head, badges = st.columns([3, 2])
+        head.markdown(f"**{rid}**" + (f" · {story['id']} {story['title']}" if story else ""))
+        with badges:
+            row = st.container(horizontal=True, horizontal_alignment="right")
+            if partner_confirmed(r):
+                row.badge("Confirmed", color="green", icon=":material/check:")
+            else:
+                row.badge("To confirm", color="gray", icon=":material/schedule:")
+        st.markdown(f"**{r['text']}**")
+        st.caption(f"Source: {source_files(r)}" + (f" · Note: {r['note']}" if r.get("note") else ""))
+        if story:
+            with st.expander("Story and acceptance criteria"):
+                st.markdown(f"_{story['description']}_")
+                for c in story["criteria"]:
+                    st.markdown(f"- **Given** {c['given']}, **when** {c['when']}, "
+                                f"**then** {c['then']}")
+        if partner_confirmed(r) or cp_valid("cp2"):
+            return
+        st.button("Confirm", key=f"pconfirm_{rid}", on_click=partner_confirm, args=(rid,),
+                  icon=":material/check:", type="primary")
+
+
+# ====================================================================== 6 · tests and export (CP3)
+
+def step_tests_export() -> None:
+    s = st.session_state
+    if not cp_valid("cp2"):
+        st.info("This step unlocks after the partner lead approves Checkpoint 2.")
+        return
+    show_notes("tests")
+    st.markdown("### Test cases")
+    if not s.tests:
+        with st.container(border=True):
+            st.markdown("**✨ The AI drafts the test cases**")
+            st.caption("For every acceptance criterion: a normal case, an error case and an edge "
+                       "case, followed by a coverage check.")
+            if st.button("Draft test cases", key="draft_tests", type="primary",
+                         icon=":material/auto_awesome:"):
+                run_draft_tests()
+                st.rerun()
+        return
 
     cov = checks.coverage(s.stories, s.tests)
     covered = sum(1 for c in cov if c["tests"] > 0)
     ready = checks.ready_to_build(s.stories, s.tests, s.reqs, s.issues)
+    kinds = {k: sum(1 for t in s.tests if t["type"] == k) for k in TEST_LABEL}
     m = st.columns(4)
-    m[0].metric("User stories", len(s.stories))
-    m[1].metric("Test cases", len(s.tests))
+    m[0].metric("Test cases", len(s.tests))
+    m[1].metric("Normal · Error · Edge", f"{kinds['positive']} · {kinds['negative']} · "
+                                          f"{kinds['boundary']}")
     m[2].metric("Criteria with a test", f"{covered} of {len(cov)}")
     m[3].metric("Ready to build", f"{len(ready)} of {len(s.stories)}")
 
     for story in s.stories:
-        render_story(story, story["id"] in ready)
+        render_story(story, show_tests=True, ready=story["id"] in ready)
 
-    with st.expander("📋 All test cases (table)"):
-        if s.tests:
-            st.dataframe(pd.DataFrame([{
-                "Test ID": t["id"], "Story": t["story_id"], "Criterion": t["criterion_id"],
-                "Type": t["type"].capitalize(), "Steps": t["steps"], "Expected result": t["expected"],
-            } for t in s.tests]), hide_index=True, width="stretch")
-        else:
-            st.caption("No test cases yet.")
     with st.expander("🧭 Coverage check"):
         cdf = pd.DataFrame([{
             "Criterion": c["criterion_id"], "Story": c["story_id"],
@@ -735,94 +1184,57 @@ def step_stories() -> None:
             lambda row: ["background-color: rgba(234, 88, 12, 0.18)" if row["Tests"] == 0 else ""]
             * len(row), axis=1)
         st.dataframe(styled, hide_index=True, width="stretch")
-        st.button("Draft the tests again", key="make_tests", on_click=redo_tests)
+        if st.button("Draft the tests again", key="make_tests",
+                     help="Replaces the tests. Checkpoint 3 has to be approved again."):
+            run_draft_tests()
+            st.rerun()
+    with st.expander("📋 All test cases (table)"):
+        st.dataframe(pd.DataFrame([{
+            "Test ID": t["id"], "Story": t["story_id"], "Criterion": t["criterion_id"],
+            "Type": TEST_LABEL.get(t["type"], t["type"]), "Steps": t["steps"],
+            "Expected result": t["expected"],
+        } for t in s.tests]), hide_index=True, width="stretch")
 
+    # ---- checkpoint 3
     st.divider()
-    left, right = st.columns([3, 2])
-    left.caption("Stories and tests are drafts. Download them in the next step.")
-    right.button("Continue to export  →", key="go_export", type="primary", on_click=go, args=(3,),
-                 width="stretch")
+    if "tester_name" not in s:
+        s.tester_name = "Tester"
+    if not cp_valid("cp3"):
+        _, c2 = st.columns([3, 2])
+        c2.text_input("Approving as", key="tester_name")
+    render_checkpoint("cp3", cp3_conditions(), f"{tester_name()} (Tester)", "Approve export",
+                      "approve_cp3", on_click=approve_cp3)
+    render_export()
 
 
-def redo_tests() -> None:
+def render_export() -> None:
     s = st.session_state
-    try:
-        tests, notes = ai.run_tests(s.stories, _provider(), DEMO_MODE)
-    except Exception as exc:
-        s.notes["stories"] = [f"Drafting the tests failed ({type(exc).__name__})."]
-        return
-    s.tests = tests
-    s.notes["stories"] = notes
-    add_log("AI run", "Test cases", f"{len(tests)} test cases drafted")
-
-
-def render_story(story: dict, ready: bool) -> None:
-    s = st.session_state
-    with st.container(border=True):
-        head, badges = st.columns([3, 2])
-        head.markdown(f"#### {story['id']} · {story['title']}")
-        with badges:
-            row = st.container(horizontal=True, horizontal_alignment="right")
-            if ready:
-                row.badge("Ready to build", color="green", icon=":material/rocket_launch:")
-            else:
-                row.badge("Not ready yet", color="orange", icon=":material/pending:")
-        st.markdown(f"_{story['description']}_")
-        drafted = {"live": "the local AI", "demo": "AI (demo run)",
-                   "template": "placeholder - please review"}.get(story.get("drafted_by"), "")
-        st.caption(f"Linked to {', '.join(story['req_ids'])} · Source: {'; '.join(story['sources'])}"
-                   + (f" · Drafted by {drafted}" if drafted else ""))
-        for rid in story["req_ids"]:
-            for issue in open_issues_for(rid):
-                st.caption(f":orange[⚠️ {rid} still has an open issue ({issue['id']} {issue['type']}).]")
-        for c in story["criteria"]:
-            st.markdown(f"**{c['id']}** · **Given** {c['given']}, **when** {c['when']}, "
-                        f"**then** {c['then']}")
-            tests = [t for t in s.tests if t["criterion_id"] == c["id"]]
-            if not tests:
-                st.markdown(":orange[⚠️ No test for this criterion yet.]")
-                continue
-            for t in tests:
-                st.markdown(
-                    f"<div style='margin-left:1.2rem; font-size:0.9rem'>"
-                    f"{TEST_ICON.get(t['type'], '')} <b>{t['id']}</b> "
-                    f"<span style='opacity:0.7'>{t['type']}</span> · {t['steps']} "
-                    f"→ <i>{t['expected']}</i></div>", unsafe_allow_html=True)
-
-
-# ====================================================================== step 4: export
-
-def step_export() -> None:
-    s = st.session_state
-    if not s.stories:
-        st.info("Draft the user stories first.")
+    st.markdown("### Export pack")
+    if not cp_valid("cp3"):
+        with st.container(border=True):
+            st.markdown("🔒 **Locked until the tester approves Checkpoint 3.**")
+            st.caption("Then download the stories and tests for Jira (CSV) and the agreed "
+                       "version (Word), each item with its source ID.")
         return
     try:
         stories_bytes = export.stories_csv(s.stories)
         tests_bytes = export.tests_csv(s.tests, s.stories)
-        docx_bytes = export.agreed_docx(PROJECT, s.reqs, s.issues, s.stories, s.tests, s.log)
+        docx_bytes = export.agreed_docx(PROJECT, s.reqs, s.issues, s.stories, s.tests, s.log,
+                                        approvals_for_export())
     except Exception as exc:
         st.error(f"The export could not be built ({type(exc).__name__}). Please try again.")
         return
 
     ready = checks.ready_to_build(s.stories, s.tests, s.reqs, s.issues)
-    open_issues = [i for i in s.issues if i["status"] == "open"]
-    if len(ready) == len(s.stories) and not open_issues:
-        st.success(f"**All {len(ready)} stories are ready to build.** Every requirement was "
-                   f"reviewed, every conflict settled, and every acceptance criterion has a test.",
-                   icon="🎉")
-    else:
-        st.warning(f"{len(ready)} of {len(s.stories)} stories are ready to build. "
-                   f"{len(open_issues)} issue(s) are still open; they are listed in the Word "
-                   f"document under 'Open issues'.")
-
+    st.success(f"**All three checkpoints approved.** {len(ready)} of {len(s.stories)} stories are "
+               f"ready to build, each with its source requirement ID.", icon="🎉")
     files = [
-        ("📊", "stories.csv", "One row per user story, with acceptance criteria. Ready for Jira import.",
-         stories_bytes, "text/csv", "dl_stories"),
+        ("📊", "stories.csv", "One row per user story with acceptance criteria and source "
+         "requirement IDs. Ready for Jira import.", stories_bytes, "text/csv", "dl_stories"),
         ("🧪", "test_cases.csv", "One row per test, linked to its story and criterion.",
          tests_bytes, "text/csv", "dl_tests"),
-        ("📝", "agreed_version.docx", "“Agreed requirements – Staff leave app – v1.0”: requirements "
-         "with sources, resolved issues, stories, tests and every decision.",
+        ("📝", "agreed_version.docx", "Agreed requirements with sources, approvals, "
+         "stories, tests and every decision.",
          docx_bytes, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "dl_docx"),
     ]
     cols = st.columns(3, gap="medium")
@@ -837,11 +1249,8 @@ def step_export() -> None:
         st.dataframe(pd.read_csv(io.BytesIO(stories_bytes), encoding="utf-8-sig"),
                      hide_index=True, width="stretch")
     with st.expander("Preview test_cases.csv"):
-        if s.tests:
-            st.dataframe(pd.read_csv(io.BytesIO(tests_bytes), encoding="utf-8-sig"),
-                         hide_index=True, width="stretch")
-        else:
-            st.caption("No test cases yet.")
+        st.dataframe(pd.read_csv(io.BytesIO(tests_bytes), encoding="utf-8-sig"),
+                     hide_index=True, width="stretch")
     with st.expander(f"Decision log ({len(s.log)})"):
         render_log()
 
@@ -856,16 +1265,6 @@ def scroll_to_top() -> None:
         "section.main').forEach(e => e.scrollTo({top: 0}));</script>", height=0)
 
 
-def log_out() -> None:
-    start_over()
-    st.session_state.signed_out = True
-
-
-def sign_in() -> None:
-    st.session_state.signed_out = False
-    flash(f"Welcome back, {USER['name']}.")
-
-
 # ---------------------------------------------------------------- theme switching
 # Streamlit applies its light/dark theme (see .streamlit/config.toml) when the page loads, and
 # remembers the choice in the browser. Switching therefore saves the work in progress on the
@@ -873,7 +1272,8 @@ def sign_in() -> None:
 
 THEMES = {"Light": ":material/light_mode: Light", "Dark": ":material/dark_mode: Dark"}
 SAVED_KEYS = ("docs", "reqs", "issues", "stories", "tests", "log", "notes", "inputs_changed",
-              "stories_basis", "stage", "flash")
+              "stories_basis", "stage", "flash", "signoffs", "partner_ok",
+              "sent_to_partner")
 
 
 @st.cache_resource
@@ -945,6 +1345,16 @@ def render_profile_menu() -> None:
                   icon=":material/logout:")
 
 
+def log_out() -> None:
+    start_over()
+    st.session_state.signed_out = True
+
+
+def sign_in() -> None:
+    st.session_state.signed_out = False
+    flash(f"Welcome back, {USER['name']}.")
+
+
 def render_signed_out() -> None:
     _, mid, _ = st.columns([1, 2, 1])
     with mid:
@@ -970,15 +1380,17 @@ def main() -> None:
 
     render_profile_menu()
     st.markdown("# 🌉 SpecBridge")
-    if not step_unlocked(st.session_state.stage):
-        st.session_state.stage = 0
+    s = st.session_state
+    while s.stage > 0 and not step_unlocked(s.stage):  # e.g. a checkpoint was undone
+        s.stage -= 1
     render_stepper()
     st.caption(f"👉 {next_hint()}")
-    if st.session_state.get("_shown_stage") != st.session_state.stage:
-        st.session_state["_shown_stage"] = st.session_state.stage
+    if s.get("_shown_stage") != s.stage:
+        s["_shown_stage"] = s.stage
         scroll_to_top()
 
-    [step_sources, step_review, step_stories, step_export][st.session_state.stage]()
+    [step_inputs, step_ai_checks, step_review, step_stories, step_partner,
+     step_tests_export][s.stage]()
 
 
 main()

@@ -47,9 +47,11 @@ The tests cover:
 | Check quotes | Each quote is looked up in the source text. Missing quotes are marked **Source not verified** in orange | Python |
 | Merge | The same rule found in two files becomes one item with both sources | Python |
 | Find problems | Different numbers on the same subject (conflict), deadlines with no "what if it's missed" (gap), vague words like *fast* or *user-friendly* (unclear) | Python + AI, results merged |
-| Review | Accept, edit or reject each item; settle conflicts; add what was missed. Every action is logged | Analyst |
-| Stories and tests | Written **only** from approved requirements: one story per requirement, then tests per story (positive, negative, boundary) | AI |
-| Export | `stories.csv`, `test_cases.csv` (Jira-friendly) and `agreed_version.docx` | Python |
+| Review · **Checkpoint 1** | Accept, edit or reject each item (with a reason); settle conflicts; add what was missed; then approve | Analyst |
+| Stories | Written **only** from requirements approved at Checkpoint 1, one story per requirement | AI |
+| Partner confirms · **Checkpoint 2** | The partner lead confirms each agreed requirement | Partner lead |
+| Tests · **Checkpoint 3** | Normal, error and edge cases for every criterion, plus a coverage check; the tester approves the export | AI, then tester |
+| Export | `stories.csv`, `test_cases.csv` (Jira-friendly) and `agreed_version.docx`, each item with its source ID | Python |
 
 The AI uses small, separate calls with structured JSON output and temperature 0. The answers are checked with Pydantic. All prompts are in [prompts.py](prompts.py).
 
@@ -63,18 +65,20 @@ The AI uses small, separate calls with structured JSON output and temperature 0.
 | [export.py](export.py) | CSV and Word export |
 | [create_samples.py](create_samples.py) | Builds the two sample files in `sample_inputs/` |
 
-## The app in 4 steps
+## The app in 6 steps, with 3 checkpoints
 
-The stepper at the top always shows where you are. Each step moves you on to the next one when its main button is clicked, and you can jump back to any step that is already done.
+The stepper follows the SpecBridge flow. ✨ marks steps where the AI does the work and 👤 marks steps where a person decides. Each **checkpoint** has a card listing what must be true (for example "every conflict decided", "every requirement reviewed") and an approve button that only unlocks when every item is ticked. The next step stays locked until the checkpoint is approved. If something approved later changes (for example the analyst rewords a requirement), that checkpoint and the ones after it must be approved again.
 
 | Step | What you see |
 |---|---|
-| **1 · Add sources** | Upload documents and emails. Each source appears as a card; emails show From, Date and Subject. The two sample files are in `sample_inputs/` (rebuild them with `python create_samples.py --force`). |
-| **2 · Review** | Conflicts come first, as a decision card with both quotes side by side and a **Keep** button for each. Below them, every requirement is a card with its quoted source, any problems and **Accept / Edit / Reject**. Add missed requirements, see a table view, resolved issues and the decision log. |
-| **3 · Stories & tests** | One click drafts both. Each story shows its Given/When/Then criteria with the tests listed under each one, and a **Ready to build** badge. Criteria without a test are highlighted. |
-| **4 · Export** | Download `stories.csv`, `test_cases.csv` and `agreed_version.docx`, with previews. |
+| **1 · Inputs** | Upload documents and emails. Each source appears as a card; emails show From, Date and Subject. The two sample files are in `sample_inputs/` (rebuild them with `python create_samples.py --force`). |
+| **2 · AI checks** ✨ | What the AI found: requirements with their quoted sources, duplicates merged, and the problems flagged (conflicts, gaps, vague words). Nothing is agreed yet. |
+| **3 · Analyst review** 👤 **Checkpoint 1** | Conflicts first, as a decision card with both quotes and a **Keep** button for each. Below them, only the requirements without conflicts; each card has **Accept / Edit / Reject** (rejecting asks for a reason, such as *Noise* or *Duplicate*). Approving drafts the stories. |
+| **4 · AI stories** ✨ | One story per approved requirement with Given/When/Then criteria. **Send to partner lead →**. |
+| **5 · Partner confirms** 👤 **Checkpoint 2** | The partner lead confirms each agreed requirement (or **Confirm all remaining**), then approves. |
+| **6 · Tests & export** 👤 **Checkpoint 3** | The AI drafts normal, error and edge cases, listed under each criterion, plus a coverage check. The tester approves, and only then the export pack (`stories.csv`, `test_cases.csv`, `agreed_version.docx`) can be downloaded. The Word file includes who approved each checkpoint. |
 
-The sidebar shows a live summary (found, flagged, accepted, edited, rejected, added, ready to build) and **Start over**. The round avatar in the top-right corner opens the profile: name (Mahendar), designation, employee ID, a **Light / Dark** theme switch, **New project** and **Log out** (a mock sign-in, no real accounts; edit `USER` in `app.py`). The light and dark themes are defined in `.streamlit/config.toml`, which also hides Streamlit's own menu and Deploy button. Switching theme reloads the page, and the work in progress is kept.
+The sidebar shows a live summary, the status of the three checkpoints (who approved and when), stories ready to build, and **Start over**. Every action is in the decision log with who did it. The round avatar in the top-right corner opens the profile: name (Mahendar), designation, employee ID, a **Light / Dark** theme switch, **New project** and **Log out** (a mock sign-in, no real accounts; edit `USER` in `app.py`). The light and dark themes are defined in `.streamlit/config.toml`, which also hides Streamlit's own menu and Deploy button. Switching theme reloads the page, and the work in progress is kept.
 
 ## 10-step demo script: "Staff leave app"
 
@@ -84,21 +88,21 @@ The sidebar shows a live summary (found, flagged, accepted, edited, rejected, ad
 
 2. **Add the sources (step 1).** Upload `HR_Leave_Policy.docx` and `HR_email_carry_over.eml` from `sample_inputs/` (drag both onto the upload box). Open **Preview text** on the policy: 20 days of annual leave, carry over at most **5** days, see your leave balance. Then show the email card's From, Date and Subject. "Note the date: the email came *after* the policy."
 
-3. **Find the requirements.** Click **Find requirements →**. The app moves to **Review** by itself. "Four requirements, each with the exact words it came from, and every quote checked against the source. If the AI made something up, its card would show an orange *Source not verified* badge."
+3. **The AI extracts and checks (step 2).** Click **Find requirements →**. "Four requirements, each with the exact words it came from, and every quote checked against the source. If the AI made something up, it would be marked *Source not verified*." Point at the stepper: "The AI does the light steps. A person decides at each of the three checkpoints, and nothing moves on without that approval."
 
-4. **One problem, found before a single line of code was written.** Point at the numbers row: 4 requirements, 1 decision needed.
+4. **One problem, found before a single line of code was written.** Point at *Problems flagged*: 1 conflict. Click **Start analyst review →**.
 
 5. **⏸ PAUSE on the conflict.** The decision card shows the two quotes side by side: the policy says **5** carry-over days (REQ-02) and the HR email says **10** (REQ-04). Let it land: "If this had gone to Partner A as-is, a developer would have picked one, and we'd have found out in user testing or from an angry store manager in January. That's rework, and maybe a payroll problem." Point out that SpecBridge doesn't decide. It suggests the question to ask HR, and **Accept** stays locked on both cards until a person decides.
 
 6. **Settle it.** Leave "Confirmed by HR" in the box and click **Keep REQ-04**. REQ-02 is marked rejected as superseded, and the decision is in the **Decision log**.
 
-7. **Finish the review.** Optional: click **Edit** on REQ-03 to show that the analyst can reword anything, for example *"Staff can see their remaining leave balance on the home screen at any time."* Then click **Accept all remaining** and point at the sidebar summary.
+7. **Checkpoint 1.** Click **Accept all remaining**. Scroll to the Checkpoint 1 card: every item is ticked, so **Approve review** unlocks. Click it. "Only now does the AI draft stories, and only from approved items. The 5-day rule is gone." Show the carry-over story and its Given/When/Then criteria, then click **Send to partner lead →**.
 
-8. **Draft stories and tests.** Click **Draft stories and tests →**. "Only approved items. The 5-day rule is gone." Show the carry-over story and its Given/When/Then criteria.
+8. **Checkpoint 2: the partner confirms.** "The build partner's lead checks the agreed list before anything is built." Click **Confirm all remaining**, then **Confirm agreed requirements**.
 
-9. **Tests under each criterion.** Point at the boundary tests 📏: *10 days → allowed, 11 days → blocked*. "Every criterion has a test. If one didn't, it would be highlighted." The badges and sidebar show **3 of 3 ready to build**.
+9. **Checkpoint 3: tests.** Click **Draft test cases**. Point at the edge tests 📏: *10 days → allowed, 11 days → blocked*. "Normal, error and edge cases for every criterion, and a coverage check. The export stays locked until the tester approves." Click **Approve export**.
 
-10. **Export and close.** Click **Continue to export →** and download `stories.csv` (ready for Jira import), `test_cases.csv` and `agreed_version.docx`. Open the Word file: agreed requirements with sources, the resolved conflict with who confirmed it, stories, tests and the full decision log. Close with: "The AI did the reading and drafting. The analyst made every decision, and the audit trail shows it."
+10. **Export and close.** Download `stories.csv` (ready for Jira import), `test_cases.csv` and `agreed_version.docx`. Open the Word file: agreed requirements with sources, who approved each checkpoint and when, stories, tests and the full decision log. Close with: "The AI did the reading and drafting. People made every decision at three checkpoints, and the audit trail shows it."
 
 **If asked "what are the prompts?"**: open [prompts.py](prompts.py).
 **If asked "what if the AI is wrong?"**: point to quote checking, the Python conflict check running beside the AI, and the analyst approving every item.

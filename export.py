@@ -40,7 +40,9 @@ def tests_csv(tests: list[dict], stories: list[dict]) -> bytes:
 
 
 def agreed_docx(project: dict, reqs: list[dict], issues: list[dict], stories: list[dict],
-                tests: list[dict], log: list[dict]) -> bytes:
+                tests: list[dict], log: list[dict], approvals: list[dict] | None = None,
+                questions: list[dict] | None = None) -> bytes:
+    """approvals: [{checkpoint, title, by, role, time}]; questions: see app.py (Q-xx records)."""
     import docx
     from docx.shared import Pt, RGBColor
 
@@ -65,6 +67,27 @@ def agreed_docx(project: dict, reqs: list[dict], issues: list[dict], stories: li
         f"{len(open_issues)} are still open. {len(stories)} user stories and {len(tests)} test cases "
         f"were drafted; {len(ready)} stories are ready to build. "
         "The AI drafted this content; every item was reviewed by the business analyst.")
+
+    # ---- checkpoint approvals
+    if approvals is not None:
+        d.add_heading("Approvals", level=1)
+        t = d.add_table(rows=1, cols=4)
+        t.style = "Light Grid Accent 1"
+        for cell, h in zip(t.rows[0].cells, ["Checkpoint", "Approved by", "Role", "When"]):
+            cell.text = h
+        for a in approvals:
+            row = t.add_row().cells
+            row[0].text = f"{a['checkpoint']} · {a['title']}"
+            row[1].text, row[2].text, row[3].text = a["by"], a["role"], a["time"]
+
+    if questions:
+        d.add_heading("Questions and answers", level=1)
+        for q in questions:
+            p = d.add_paragraph(style="List Bullet")
+            p.add_run(f"{q['id']} ({', '.join(q['req_ids'])}) – {q['asked_by']} asked "
+                      f"{q['asked_to']}: ").bold = True
+            p.add_run(f"{q['text']} ")
+            p.add_run(f"Answer: {q['answer']}" if q.get("answer") else "Not answered yet.")
 
     # ---- requirements
     d.add_heading("Requirements", level=1)
