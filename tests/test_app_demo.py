@@ -203,35 +203,6 @@ def test_reject_needs_a_reason():
     assert r["status"] == "rejected" and r["note"] == "Out of scope: Phase 2"
 
 
-def test_profile_menu_log_out_and_back_in():
-    at = _app()
-    assert all("prompts" not in e.label for e in at.sidebar.expander)
-    _upload_samples(at)
-    _click(at, "log_out")
-    assert at.session_state["signed_out"] and at.session_state["docs"] == []
-    assert "find_reqs" not in _keys(at)  # app hidden while logged out
-    _click(at, "sign_in")
-    assert not at.session_state["signed_out"]
-    assert at.button(key="find_reqs")
-
-
-def test_theme_switch_keeps_work_across_reload():
-    at = _app()
-    _upload_samples(at)
-    _click(at, "find_reqs")
-    token = at.query_params["s"][0] if isinstance(at.query_params["s"], list) else at.query_params["s"]
-    at.segmented_control(key="theme_choice").set_value("Dark").run()
-    assert not at.exception, at.exception
-
-    # The browser reloads the page: a new session with the same URL gets the work back
-    fresh = AppTest.from_file(str(ROOT / "app.py"), default_timeout=60)
-    fresh.query_params["s"] = token
-    fresh.run()
-    assert not fresh.exception, fresh.exception
-    assert fresh.session_state["stage"] == 1
-    assert [r["id"] for r in fresh.session_state["reqs"]] == ["REQ-01", "REQ-02", "REQ-03", "REQ-04"]
-
-
 def test_custom_wording_settles_conflict():
     at = _app()
     _to_review(at)

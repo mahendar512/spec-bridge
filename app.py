@@ -70,41 +70,45 @@ STATUS_BADGE = {  # label, colour, icon
     "added": ("Added by analyst", "violet", ":material/add:"),
 }
 REJECT_REASONS = ["Noise - not a requirement", "Duplicate", "Out of scope", "Superseded", "Other"]
-ISSUE_ICON = {"Conflict": "🔴", "Gap": "🟡", "Unclear": "🟠", "Not testable": "🟠"}
-TEST_ICON = {"positive": "✅", "negative": "⛔", "boundary": "📏"}
+ISSUE_ICON = {"Conflict": ":red[:material/error:]", "Gap": ":orange[:material/help:]",
+              "Unclear": ":orange[:material/contrast:]",
+              "Not testable": ":orange[:material/rule:]"}
+TEST_COLOR = {"positive": "#15803D", "negative": "#B91C1C", "boundary": "#B45309"}
 TEST_LABEL = {"positive": "Normal", "negative": "Error", "boundary": "Edge"}
 
-st.set_page_config(page_title="SpecBridge", page_icon="🌉", layout="wide")
+st.set_page_config(page_title="SpecBridge", page_icon=":material/hub:", layout="wide",
+                   initial_sidebar_state=352)
 
 st.markdown("""
 <style>
-.block-container {padding-top: 2.2rem; max-width: 1180px;}
+.block-container {padding-top: 1.5rem; max-width: 100%;}
 blockquote {margin: 0.2rem 0 0.4rem 0; padding: 0.1rem 0 0.1rem 0.8rem; opacity: 0.9;}
 div[data-testid="stMetricValue"] {font-size: 1.6rem; font-weight: 600;}
 h1 {letter-spacing: -0.02em;}
 [data-testid="stAppDeployButton"], [data-testid="stMainMenu"] {display: none !important;}
 
-/* Profile avatar: fixed in the top-right corner of the window */
-.st-key-profile {position: fixed; top: 0.55rem; right: 1.1rem; z-index: 1000001; width: auto !important;}
-.st-key-profile button {width: 2.4rem; height: 2.4rem; min-height: 2.4rem; padding: 0;
-    border-radius: 50%; background: #2457D6; color: #fff; border: 2px solid rgba(255,255,255,0.85);
-    box-shadow: 0 1px 4px rgba(0,0,0,0.25); font-weight: 600; justify-content: center;}
-.st-key-profile button:hover {background: #1C47B4; color: #fff; border-color: #fff;}
-.st-key-profile button p {font-size: 1rem; margin: 0;}
-.st-key-profile button > div {justify-content: center; gap: 0; width: 100%;}
-.st-key-profile button [data-testid="stIconMaterial"] {display: none;}  /* hide the chevron */
-.sb-avatar {width: 3rem; height: 3rem; border-radius: 50%; background: #2457D6; color: #fff;
-            display: flex; align-items: center; justify-content: center; font-weight: 600;
-            font-size: 1.25rem; flex-shrink: 0;}
-.sb-profile-row {display: flex; justify-content: space-between; font-size: 0.88rem;
-                 padding: 0.15rem 0;}
-.sb-profile-row span:first-child {opacity: 0.65;}
+[data-testid="stSidebar"][data-collapsed="false"] {width: 22rem !important; min-width: 22rem !important; max-width: 22rem !important;}
+[data-testid="stSidebarCollapseButton"] {visibility: visible !important;}
+[data-testid="stExpandSidebarButton"] {visibility: visible !important; opacity: 1 !important;}
+.stApp:has([data-testid="stSidebar"][data-collapsed="true"]) .block-container {padding-top: 3.6rem;}
+/* Larger text for the main content only (the sidebar keeps the base size) */
+[data-testid="stMain"] {zoom: 1.13;}
+.brand {font-size: 1.6rem; font-weight: 700; letter-spacing: -0.03em; line-height: 1.2;}
+.brand span {color: #2457D6;}
+.test-line {margin-left: 1.2rem; font-size: 0.9rem; padding: 0.15rem 0;}
+.test-tag {font-size: 0.68rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+           padding: 0.05rem 0.45rem; border-radius: 999px; border: 1px solid currentColor;
+           margin: 0 0.35rem;}
+[data-testid="stMetric"] {background: rgba(128,128,128,0.06); border: 1px solid rgba(128,128,128,0.18);
+                          border-radius: 0.6rem; padding: 0.7rem 0.9rem;}
+[data-testid="stMetricLabel"] {opacity: 0.7;}
+[data-testid="stVerticalBlockBorderWrapper"] {border-radius: 0.65rem;}
 
 /* Checkpoint labels (as in the SpecBridge flow diagram) */
 .cp-pill {display: inline-block; font-size: 0.66rem; font-weight: 700; letter-spacing: 0.07em;
           background: #1E3A6E; color: #fff; padding: 0.12rem 0.55rem; border-radius: 999px;}
 .cp-pill.done {background: #15803D;}
-.cp-slot {height: 1.35rem; text-align: center;}
+.cp-slot {height: 1.9rem; text-align: center; display: flex; align-items: flex-start; justify-content: center;}
 /* Stepper: six steps on one row without cutting the labels */
 [class*="st-key-nav_"] button {padding-left: 0.4rem; padding-right: 0.4rem; min-height: 2.6rem;}
 [class*="st-key-nav_"] button p {font-size: 0.8rem; white-space: nowrap;}
@@ -553,16 +557,13 @@ def run_draft_tests() -> bool:
 
 def show_notes(key: str) -> None:
     for note in st.session_state.notes.get(key) or []:
-        st.warning(note, icon="⚠️")
+        st.warning(note, icon=":material/warning:")
 
 
 # ====================================================================== sidebar
 
 def render_sidebar() -> None:
     sb = st.sidebar
-    sb.markdown("## 🌉 SpecBridge")
-    sb.caption("Scattered requirements in. One agreed list out. "
-               "The AI only drafts. A person approves everything.")
 
     s = st.session_state
     reqs, issues = s.reqs, s.issues
@@ -586,23 +587,26 @@ def render_sidebar() -> None:
     sb.markdown("#### Summary")
     sb.markdown(f"<div style='font-size:0.9rem'>{html}</div>", unsafe_allow_html=True)
 
+    sb.markdown("<div style='height:1.1rem'></div>", unsafe_allow_html=True)
     sb.markdown("#### Checkpoints")
     cp_rows = []
     for cp, label, title in CHECKPOINTS.values():
         so = s.signoffs.get(cp)
         if cp_valid(cp):
             status = f"<small style='opacity:0.7'>{so['by']} · {so['time']}</small>"
-            mark = "✅"
+            mark = ":green[:material/check_circle:]"
         elif so:
             status = "<small style='color:#c2410c'>changed - approve again</small>"
-            mark = "⚠️"
+            mark = ":orange[:material/warning:]"
         else:
             status = "<small style='opacity:0.6'>waiting</small>"
-            mark = "⏳"
-        cp_rows.append(f"<div style='padding:0.3rem 0;border-bottom:1px solid "
-                       f"rgba(128,128,128,0.15)'>{mark} <b>{label}</b> · {title}<br>"
-                       f"<span style='margin-left:1.5rem'>{status}</span></div>")
-    sb.markdown(f"<div style='font-size:0.88rem'>{''.join(cp_rows)}</div>", unsafe_allow_html=True)
+            mark = ":gray[:material/schedule:]"
+        cp_rows.append((mark, label, title, status))
+    for mark, label, title, status in cp_rows:
+        with sb.container():
+            st.markdown(f"{mark} **{label}** · {title}")
+            st.markdown(f"<div style='margin:-0.6rem 0 0.2rem 1.6rem;font-size:0.8rem'>{status}</div>",
+                        unsafe_allow_html=True)
 
     ready = checks.ready_to_build(s.stories, s.tests, reqs, issues)
     sb.metric("Stories ready to build", f"{len(ready)} of {len(s.stories)}",
@@ -621,7 +625,8 @@ def render_sidebar() -> None:
             "6. **Tests and export** · *Checkpoint 3*: AI drafts normal, error and edge cases "
             "with a coverage check; the tester approves the export.")
     if s.docs:
-        sb.button("↺ Start over", key="start_over", on_click=start_over, width="stretch")
+        sb.button("Start over", key="start_over", on_click=start_over, width="stretch",
+                  icon=":material/restart_alt:")
 
 
 # ====================================================================== stepper
@@ -642,9 +647,9 @@ def render_stepper() -> None:
                    icon=":material/check_circle:" if done else STEP_ICON[kind],
                    type="primary" if i == s.stage else "secondary",
                    disabled=not step_unlocked(i), width="stretch")
-    st.markdown("<div class='legend'>✨ AI does the work &nbsp;·&nbsp; 👤 A person decides "
-                "&nbsp;·&nbsp; each checkpoint must be approved before the next step unlocks"
-                "</div>", unsafe_allow_html=True)
+    st.markdown("<div class='legend'>Sparkle icon: the AI does the work &nbsp;·&nbsp; person icon: "
+                "a person decides &nbsp;·&nbsp; each checkpoint must be approved before the next "
+                "step unlocks</div>", unsafe_allow_html=True)
 
 
 def next_hint() -> str:
@@ -694,7 +699,7 @@ def render_checkpoint(cp_key: str, conditions: list[tuple[bool, str]], approver:
             st.warning("Something changed after this checkpoint was approved, so it has to be "
                        "approved again.", icon=":material/history:")
         for ok, text in conditions:
-            st.markdown(f"{'✅' if ok else '⬜'} {text}")
+            st.markdown(f"{':green[:material/check_circle:]' if ok else ':gray[:material/radio_button_unchecked:]'} {text}")
         all_ok = all(ok for ok, _ in conditions)
         left, right = st.columns([3, 2], vertical_alignment="center")
         left.caption(f"Approver: **{approver}**" + ("" if all_ok else
@@ -721,7 +726,7 @@ def render_requirements_table() -> None:
         "Status": STATUS_BADGE[r["status"]][0],
         "Source file": "\n".join(s["file"] for s in r["sources"]) or "Added by analyst",
         "Quoted source text": "\n".join(f"“{s['quote']}”" for s in r["sources"]),
-        "Source check": ("✅ Verified" if checks.is_verified(r) else "🟠 Source not verified")
+        "Source check": ("Verified" if checks.is_verified(r) else "Source not verified")
         if r["sources"] else "—",
     } for r in st.session_state.reqs]
     styled = pd.DataFrame(rows).style.map(
@@ -746,7 +751,7 @@ def step_inputs() -> None:
     st.caption("Emails copied to the project's tagged address arrive here automatically; private "
                "inboxes are never scanned. You can also upload files: .docx, .pdf, .txt, .eml, .msg")
     with st.container(border=True):
-        st.file_uploader("**⬆️ Upload files**", type=SUPPORTED_TYPES,
+        st.file_uploader("**Upload files**", type=SUPPORTED_TYPES,
                          accept_multiple_files=True, key="uploader", on_change=on_upload)
     show_notes("inputs")
 
@@ -773,9 +778,9 @@ def step_inputs() -> None:
 
 
 def render_source(doc: ParsedDoc) -> None:
-    icon = "✉️" if doc.kind == "email" else "📄"
+    icon = ":material/mail:" if doc.kind == "email" else ":material/description:"
     h1, h2 = st.columns([5, 1])
-    h1.markdown(f"**{icon} {doc.name}**")
+    h1.markdown(f"{icon} **{doc.name}**")
     h2.button("", key=f"remove_{doc.name}", on_click=remove_doc, args=(doc.name,),
               icon=":material/delete:", help="Remove this source")
     if doc.error:
@@ -812,7 +817,7 @@ def step_ai_checks() -> None:
     m[3].metric("Problems flagged", len(s.issues))
     if unverified:
         st.warning(f"{unverified} quote(s) could not be found in the source. They are marked "
-                   "**Source not verified**.", icon="🟠")
+                   "**Source not verified**.", icon=":material/warning:")
 
     st.markdown("#### Problems flagged")
     if not s.issues:
@@ -821,7 +826,7 @@ def step_ai_checks() -> None:
         with st.container(border=True):
             st.markdown(f"{ISSUE_ICON.get(i['type'], '')} **{i['type']}** · "
                         f"{', '.join(i['req_ids'])}  \n{i['explanation']}")
-            st.caption(f"💡 {i['suggestion']}")
+            st.caption(f":material/lightbulb: {i['suggestion']}")
 
     st.markdown("#### Requirements with their sources")
     render_requirements_table()
@@ -853,7 +858,7 @@ def step_review() -> None:
     # ---- conflicts first: they block everything else
     conflicts = [i for i in s.issues if i["type"] == "Conflict"]
     if conflicts:
-        st.markdown(f"### 🔴 Conflicts ({len(open_conflicts())} to decide)")
+        st.markdown(f"### Conflicts ({len(open_conflicts())} to decide)")
         for issue in conflicts:
             render_conflict(issue)
 
@@ -880,7 +885,7 @@ def step_review() -> None:
         render_requirement(r)
 
     # ---- extras
-    with st.expander("➕ Add a requirement the AI missed"):
+    with st.expander("Add a requirement the AI missed", icon=":material/add_circle:"):
         st.text_area("Requirement", key="new_req_text",
                      placeholder="e.g. Managers get a reminder when a leave request is waiting.")
         c1, c2 = st.columns([1, 2])
@@ -890,16 +895,16 @@ def step_review() -> None:
         st.button("Add requirement", key="add_req", on_click=add_requirement, type="primary")
 
     resolved = [i for i in s.issues if i["status"] == "resolved"]
-    with st.expander(f"✅ Resolved issues ({len(resolved)})"):
+    with st.expander(f"Resolved issues ({len(resolved)})", icon=":material/task_alt:"):
         if not resolved:
             st.caption("None yet.")
         for i in resolved:
-            st.markdown(f"**{i['id']} · {ISSUE_ICON.get(i['type'], '')} {i['type']}** "
+            st.markdown(f"{ISSUE_ICON.get(i['type'], '')} **{i['id']} · {i['type']}** "
                         f"({', '.join(i['req_ids'])}): {i['explanation']}  \n"
                         f":green[Decision: {i['resolution']}]")
         st.button("Run the checks again", key="recheck_issues", on_click=run_issue_recheck,
                   help="Runs the problem checks again. Earlier decisions on issues are cleared.")
-    with st.expander(f"🕑 Decision log ({len(s.log)})"):
+    with st.expander(f"Decision log ({len(s.log)})", icon=":material/history:"):
         render_log()
 
     # ---- checkpoint 1
@@ -926,10 +931,10 @@ def render_conflict(issue: dict) -> None:
     involved = [r for r in (find_req(i) for i in issue["req_ids"]) if r]
     with st.container(border=True):
         if issue["status"] == "resolved":
-            st.markdown(f"**{ISSUE_ICON['Conflict']} {iid} · Conflict settled**")
+            st.markdown(f"{ISSUE_ICON['Conflict']} **{iid} · Conflict settled**")
             st.caption(issue["resolution"])
             return
-        st.markdown("### 🔴 Decision needed: which one is right?")
+        st.markdown("### Decision needed: which one is right?")
         st.markdown(issue["explanation"])
         if f"note_{iid}" not in st.session_state:
             st.session_state[f"note_{iid}"] = "Confirmed by HR"
@@ -947,7 +952,7 @@ def render_conflict(issue: dict) -> None:
             st.text_input("Agreed wording", key=f"custom_{iid}")
             st.button("Use this wording", key=f"custom_save_{iid}", on_click=custom_conflict,
                       args=(iid,))
-        st.caption(f"💡 {issue['suggestion']}  ·  Found by "
+        st.caption(f":material/lightbulb: {issue['suggestion']}  ·  Found by "
                    + ("the AI check" if issue["origin"] == "ai" else "the built-in check"))
 
 
@@ -976,12 +981,12 @@ def render_requirement(r: dict) -> None:
 
         for issue in open_issues_for(rid):
             if issue["type"] == "Conflict":
-                st.caption(f":orange[🔴 Part of conflict {issue['id']}: decide it above.]")
+                st.caption(f":orange[:material/error: Part of conflict {issue['id']}: decide it above.]")
                 continue
             with st.container(border=True):
-                st.markdown(f"**{ISSUE_ICON.get(issue['type'], '')} {issue['type']}** · "
+                st.markdown(f"{ISSUE_ICON.get(issue['type'], '')} **{issue['type']}** · "
                             f"{issue['explanation']}")
-                st.caption(f"💡 {issue['suggestion']}")
+                st.caption(f":material/lightbulb: {issue['suggestion']}")
                 c1, c2 = st.columns([4, 1])
                 c1.text_input("Reason", key=f"res_note_{issue['id']}",
                               label_visibility="collapsed",
@@ -1067,14 +1072,14 @@ def render_story(story: dict, show_tests: bool, ready: bool = False) -> None:
                 continue
             tests = [t for t in s.tests if t["criterion_id"] == c["id"]]
             if not tests:
-                st.markdown(":orange[⚠️ No test for this criterion yet.]")
+                st.markdown(":orange[:material/warning: No test for this criterion yet.]")
                 continue
             for t in tests:
                 st.markdown(
-                    f"<div style='margin-left:1.2rem; font-size:0.9rem'>"
-                    f"{TEST_ICON.get(t['type'], '')} <b>{t['id']}</b> "
-                    f"<span style='opacity:0.7'>{TEST_LABEL.get(t['type'], t['type'])}</span> · "
-                    f"{t['steps']} → <i>{t['expected']}</i></div>", unsafe_allow_html=True)
+                    f"<div class='test-line'><b>{t['id']}</b>"
+                    f"<span class='test-tag' style='color:{TEST_COLOR.get(t['type'], '#555')}'>"
+                    f"{TEST_LABEL.get(t['type'], t['type'])}</span>"
+                    f"{t['steps']} &rarr; <i>{t['expected']}</i></div>", unsafe_allow_html=True)
 
 
 # ====================================================================== 5 · partner confirms (CP2)
@@ -1151,7 +1156,7 @@ def step_tests_export() -> None:
     st.markdown("### Test cases")
     if not s.tests:
         with st.container(border=True):
-            st.markdown("**✨ The AI drafts the test cases**")
+            st.markdown(":material/auto_awesome: **The AI drafts the test cases**")
             st.caption("For every acceptance criterion: a normal case, an error case and an edge "
                        "case, followed by a coverage check.")
             if st.button("Draft test cases", key="draft_tests", type="primary",
@@ -1174,11 +1179,11 @@ def step_tests_export() -> None:
     for story in s.stories:
         render_story(story, show_tests=True, ready=story["id"] in ready)
 
-    with st.expander("🧭 Coverage check"):
+    with st.expander("Coverage check", icon=":material/fact_check:"):
         cdf = pd.DataFrame([{
             "Criterion": c["criterion_id"], "Story": c["story_id"],
             "Acceptance criterion": c["criterion"], "Tests": c["tests"],
-            "Status": "✅ Covered" if c["tests"] else "⚠️ No test yet",
+            "Status": "Covered" if c["tests"] else "No test yet",
         } for c in cov])
         styled = cdf.style.apply(
             lambda row: ["background-color: rgba(234, 88, 12, 0.18)" if row["Tests"] == 0 else ""]
@@ -1188,7 +1193,7 @@ def step_tests_export() -> None:
                      help="Replaces the tests. Checkpoint 3 has to be approved again."):
             run_draft_tests()
             st.rerun()
-    with st.expander("📋 All test cases (table)"):
+    with st.expander("All test cases (table)", icon=":material/table_rows:"):
         st.dataframe(pd.DataFrame([{
             "Test ID": t["id"], "Story": t["story_id"], "Criterion": t["criterion_id"],
             "Type": TEST_LABEL.get(t["type"], t["type"]), "Steps": t["steps"],
@@ -1212,7 +1217,7 @@ def render_export() -> None:
     st.markdown("### Export pack")
     if not cp_valid("cp3"):
         with st.container(border=True):
-            st.markdown("🔒 **Locked until the tester approves Checkpoint 3.**")
+            st.markdown(":material/lock: **Locked until the tester approves Checkpoint 3.**")
             st.caption("Then download the stories and tests for Jira (CSV) and the agreed "
                        "version (Word), each item with its source ID.")
         return
@@ -1227,20 +1232,20 @@ def render_export() -> None:
 
     ready = checks.ready_to_build(s.stories, s.tests, s.reqs, s.issues)
     st.success(f"**All three checkpoints approved.** {len(ready)} of {len(s.stories)} stories are "
-               f"ready to build, each with its source requirement ID.", icon="🎉")
+               f"ready to build, each with its source requirement ID.", icon=":material/verified:")
     files = [
-        ("📊", "stories.csv", "One row per user story with acceptance criteria and source "
+        (":material/table_chart:", "stories.csv", "One row per user story with acceptance criteria and source "
          "requirement IDs. Ready for Jira import.", stories_bytes, "text/csv", "dl_stories"),
-        ("🧪", "test_cases.csv", "One row per test, linked to its story and criterion.",
+        (":material/science:", "test_cases.csv", "One row per test, linked to its story and criterion.",
          tests_bytes, "text/csv", "dl_tests"),
-        ("📝", "agreed_version.docx", "Agreed requirements with sources, approvals, "
+        (":material/article:", "agreed_version.docx", "Agreed requirements with sources, approvals, "
          "stories, tests and every decision.",
          docx_bytes, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "dl_docx"),
     ]
     cols = st.columns(3, gap="medium")
     for col, (icon, name, desc, data, mime, key) in zip(cols, files):
         with col.container(border=True, height=210):
-            st.markdown(f"**{icon} {name}**")
+            st.markdown(f"{icon} **{name}**")
             st.caption(desc)
             st.download_button("Download", data, name, mime, key=key, type="primary",
                                icon=":material/download:", width="stretch")
@@ -1320,31 +1325,6 @@ def apply_pending_theme() -> None:
         "w.location.reload();</script>", height=0)
 
 
-def render_profile_menu() -> None:
-    initial = USER["name"][0].upper()
-    with st.popover(initial, key="profile"):
-        st.markdown(
-            f"<div style='display:flex;gap:0.8rem;align-items:center;min-width:15rem'>"
-            f"<div class='sb-avatar'>{initial}</div>"
-            f"<div><div style='font-weight:600;font-size:1.05rem'>{USER['name']}</div>"
-            f"<div style='opacity:0.7;font-size:0.88rem'>{USER['designation']}</div></div></div>",
-            unsafe_allow_html=True)
-        st.markdown(
-            f"<div style='margin-top:0.7rem'>"
-            f"<div class='sb-profile-row'><span>Employee ID</span><span>{USER['emp_id']}</span></div>"
-            f"</div>", unsafe_allow_html=True)
-        st.divider()
-        st.markdown("<small style='opacity:0.7'>Appearance</small>", unsafe_allow_html=True)
-        st.segmented_control("Theme", list(THEMES), format_func=THEMES.get, key="theme_choice",
-                             default=current_theme(), on_change=choose_theme,
-                             label_visibility="collapsed", width="stretch")
-        if st.session_state.docs:
-            st.button("New project", key="profile_new", on_click=start_over, width="stretch",
-                      icon=":material/add_circle:", help="Clears this project and starts again.")
-        st.button("Log out", key="log_out", on_click=log_out, width="stretch",
-                  icon=":material/logout:")
-
-
 def log_out() -> None:
     start_over()
     st.session_state.signed_out = True
@@ -1360,7 +1340,7 @@ def render_signed_out() -> None:
     with mid:
         st.markdown("<div style='height:12vh'></div>", unsafe_allow_html=True)
         with st.container(border=True):
-            st.markdown("## 🌉 SpecBridge")
+            st.markdown("<div class='brand'>Spec<span>Bridge</span></div>", unsafe_allow_html=True)
             st.markdown("You have been logged out.")
             st.button(f"Log in as {USER['name']}", key="sign_in", on_click=sign_in,
                       type="primary", width="stretch", icon=":material/login:")
@@ -1374,17 +1354,16 @@ def main() -> None:
         return
     apply_pending_theme()
     if st.session_state.flash:
-        st.toast(st.session_state.flash, icon="✅")
+        st.toast(st.session_state.flash, icon=":material/check_circle:")
         st.session_state.flash = None
     render_sidebar()
 
-    render_profile_menu()
-    st.markdown("# 🌉 SpecBridge")
+    st.markdown("<div class='brand' style='font-size:2.1rem'>Spec<span>Bridge</span></div>", unsafe_allow_html=True)
     s = st.session_state
     while s.stage > 0 and not step_unlocked(s.stage):  # e.g. a checkpoint was undone
         s.stage -= 1
     render_stepper()
-    st.caption(f"👉 {next_hint()}")
+    st.caption(f":material/arrow_forward: {next_hint()}")
     if s.get("_shown_stage") != s.stage:
         s["_shown_stage"] = s.stage
         scroll_to_top()
